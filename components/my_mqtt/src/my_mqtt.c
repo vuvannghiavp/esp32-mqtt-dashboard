@@ -235,6 +235,14 @@ void mqtt_app_start(void)
 {
     esp_mqtt_client_config_t mqtt_cfg = {
         .broker.address.uri = CONFIG_BROKER_URL,
+          .session.keepalive = 30,
+        .session.last_will = {
+            .topic = "esp32_vuVanNGhia/home/status",
+            .msg = "{\"status\":\"offline\"}",
+            .msg_len = 20,
+            .qos = 1,
+            .retain = 1,
+        },
     };
     client = esp_mqtt_client_init(&mqtt_cfg);
     esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);

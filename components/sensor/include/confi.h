@@ -3,8 +3,8 @@
 #include "driver/ledc.h"
 #include "sr522.h"
 #include "zh_bh1750.h"
-// DHT22-DATA_GPIO5
-
+// DHT22
+#define DHT_GPIO          14
 #define DHT_OK 0
 #define DHT_CHECKSUM_ERROR -1
 #define DHT_TIMEOUT_ERROR -2
