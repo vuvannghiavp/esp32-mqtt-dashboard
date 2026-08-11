@@ -1,0 +1,1132 @@
+<!DOCTYPE html>
+<html lang="vi">
+      <!-- Embeded MQTT.js library -->
+<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESP32 IoT Glassmorphism Dashboard</title>
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Font Awesome Icons CDN -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Google Fonts: Inter -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- MQTT.js CDN -->
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        glass: {
+                            bg: 'rgba(255, 255, 255, 0.07)',
+                            border: 'rgba(255, 255, 255, 0.15)',
+                            card: 'rgba(18, 24, 38, 0.65)',
+                            input: 'rgba(255, 255, 255, 0.08)'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background: radial-gradient(circle at 15% 15%, #1e1b4b 0%, #0f172a 45%, #020617 100%);
+            background-attachment: fixed;
+            min-height: 100vh;
+            color: #f8fafc;
+        }
+
+        /* Ambient Light Spheres */
+        .ambient-light-1 {
+            position: fixed;
+            top: -10%;
+            left: -5%;
+            width: 450px;
+            height: 450px;
+            background: radial-gradient(circle, rgba(99, 102, 241, 0.35) 0%, rgba(0, 0, 0, 0) 70%);
+            border-radius: 50%;
+            z-index: 0;
+            pointer-events: none;
+            animation: float 12s ease-in-out infinite alternate;
+        }
+
+        .ambient-light-2 {
+            position: fixed;
+            bottom: -10%;
+            right: -5%;
+            width: 500px;
+            height: 500px;
+            background: radial-gradient(circle, rgba(16, 185, 129, 0.25) 0%, rgba(0, 0, 0, 0) 70%);
+            border-radius: 50%;
+            z-index: 0;
+            pointer-events: none;
+            animation: float 15s ease-in-out infinite alternate-reverse;
+        }
+
+        @keyframes float {
+            0% { transform: translate(0, 0) scale(1); }
+            100% { transform: translate(40px, 30px) scale(1.1); }
+        }
+
+        /* Glassmorphism utility classes */
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.65);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+        }
+
+        .glass-card {
+            background: rgba(30, 41, 59, 0.5);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .glass-card:hover {
+            border-color: rgba(255, 255, 255, 0.22);
+            box-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.5);
+            transform: translateY(-2px);
+        }
+
+        /* Toggle switch custom styling */
+        .toggle-checkbox:checked {
+            right: 0;
+            border-color: #10B981;
+        }
+        .toggle-checkbox:checked + .toggle-label {
+            background-color: #10B981;
+        }
+
+        /* Radar motion animation */
+        @keyframes radar-sweep {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .radar-line {
+            animation: radar-sweep 4s linear infinite;
+            transform-origin: center;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.6);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.4);
+        }
+    </style>
+</head>
+<body class="relative min-h-screen pb-12 antialiased selection:bg-indigo-500 selection:text-white">
+
+    <div class="ambient-light-1"></div>
+    <div class="ambient-light-2"></div>
+
+    <div class="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
+        
+        <header class="glass-panel rounded-2xl p-4 sm:p-6 mb-6 flex flex-col md:flex-row items-center justify-between gap-4">
+            <div class="flex items-center gap-4 text-center md:text-left">
+                <div class="w-12 h-12 rounded-xl bg-gradient-to-tr from-indigo-500 to-emerald-400 flex items-center justify-center text-2xl text-white shadow-lg shadow-indigo-500/30">
+                    <i class="fa-solid fa-microchip"></i>
+                </div>
+                <div>
+                    <h1 class="text-xl sm:text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white via-slate-200 to-indigo-200">
+                        ESP32 Smart Control - vuVanNGhia
+                    </h1>
+                    <p class="text-xs sm:text-sm text-slate-400">ESP-IDF MQTT WebSockets Control Center</p>
+                </div>
+            </div>
+
+            <!-- Status Badges -->
+            <div class="flex flex-wrap items-center justify-center gap-3">
+                <!-- Simulation mode toggle button -->
+                <button id="simModeBtn" onclick="toggleSimMode()" class="px-3 py-1.5 rounded-xl text-xs font-medium border border-amber-500/30 bg-amber-500/10 text-amber-300 hover:bg-amber-500/20 transition-all flex items-center gap-2">
+                    <i class="fa-solid fa-flask"></i>
+                    <span id="simStatusText">Giả lập: TẮT</span>
+                </button>
+
+                <!-- MQTT Connection Status -->
+                <div class="glass-card px-3 py-1.5 rounded-xl flex items-center gap-2 border border-slate-700">
+                    <span class="relative flex h-2.5 w-2.5">
+                        <span id="mqttPulse" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                        <span id="mqttDot" class="relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500"></span>
+                    </span>
+                    <span id="mqttStatusText" class="text-xs font-semibold text-rose-300">Broker: Disconnected</span>
+                </div>
+
+                <!-- ESP32 Online Status -->
+                <div class="glass-card px-3 py-1.5 rounded-xl flex items-center gap-2 border border-slate-700">
+                    <span class="relative flex h-2.5 w-2.5">
+                        <span id="espPulse" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-slate-400 opacity-75"></span>
+                        <span id="espDot" class="relative inline-flex rounded-full h-2.5 w-2.5 bg-slate-500"></span>
+                    </span>
+                    <span id="espStatusText" class="text-xs font-semibold text-slate-400">ESP32: Offline</span>
+                </div>
+
+                <!-- Config Modal Trigger -->
+                <button onclick="openConfigModal()" class="w-9 h-9 rounded-xl bg-slate-800/80 hover:bg-slate-700 flex items-center justify-center text-slate-300 hover:text-white transition-colors border border-white/10" title="Cấu hình Kết nối">
+                    <i class="fa-solid fa-gear"></i>
+                </button>
+            </div>
+        </header>
+
+        <main class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+            <!-- LEFT COLUMN: CONTROLS & TIMERS (4 cols) -->
+            <section class="lg:col-span-4 flex flex-col gap-6">
+                
+                <!-- CONTROL CARD -->
+                <div class="glass-panel rounded-2xl p-5 sm:p-6">
+                    <div class="flex items-center justify-between mb-5">
+                        <h2 class="text-lg font-semibold text-white flex items-center gap-2">
+                            <i class="fa-solid fa-sliders text-indigo-400"></i> Bảng Điều Khiển
+                        </h2>
+                        <span class="text-xs text-slate-400">Gửi lệnh tức thì</span>
+                    </div>
+
+                    <div class="space-y-4">
+                        <!-- LED Switch -->
+                        <div class="glass-card p-4 rounded-xl flex items-center justify-between">
+                            <div class="flex items-center gap-3">
+                                <div id="ledIconBox" class="w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center text-slate-400 transition-all duration-300">
+                                    <i class="fa-solid fa-lightbulb text-lg"></i>
+                                </div>
+                                <div>
+                                    <p class="text-sm font-medium text-white">Đèn Phòng Khách</p>
+                                    <p id="ledStatusText" class="text-xs text-slate-400">Trạng thái: TẮT</p>
+                                </div>
+                            </div>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="ledToggle" class="sr-only peer" onchange="toggleDevice('led', this.checked)">
+                                <div class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+                            </label>
+                        </div>
+
+                        <!-- Fan Switch -->
+                        <div class="glass-card p-4 rounded-xl flex items-center justify-between">
+                            <div class="flex items-center gap-3">
+                                <div id="fanIconBox" class="w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center text-slate-400 transition-all duration-300">
+                                    <i class="fa-solid fa-fan text-lg"></i>
+                                </div>
+                                <div>
+                                    <p class="text-sm font-medium text-white">Quạt Gió</p>
+                                    <p id="fanStatusText" class="text-xs text-slate-400">Trạng thái: TẮT</p>
+                                </div>
+                            </div>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="fanToggle" class="sr-only peer" onchange="toggleDevice('fan', this.checked)">
+                                <div class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-cyan-500"></div>
+                            </label>
+                        </div>
+
+                        <!-- Fan Speed Slider -->
+                        <div class="glass-card p-4 rounded-xl space-y-2">
+                            <div class="flex justify-between items-center">
+                                <span class="text-xs font-medium text-slate-300"><i class="fa-solid fa-gauge-high mr-1 text-cyan-400"></i> Tốc độ Quạt (PWM)</span>
+                                <span id="fanSpeedVal" class="text-xs font-bold text-cyan-400">0 %</span>
+                            </div>
+                            <input type="range" id="fanSpeedSlider" min="0" max="100" value="0" onchange="sendFanSpeed(this.value)" class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-400">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TIMER & SCHEDULER CARD -->
+                <div class="glass-panel rounded-2xl p-5 sm:p-6">
+                    <div class="flex items-center justify-between mb-4">
+                        <h2 class="text-lg font-semibold text-white flex items-center gap-2">
+                            <i class="fa-solid fa-clock text-amber-400"></i> Hẹn Giờ Bật/Tắt
+                        </h2>
+                        <span class="text-xs text-slate-400">JSON Config</span>
+                    </div>
+
+                    <form onsubmit="handleScheduleSubmit(event)" class="space-y-4">
+                        <div>
+                            <label class="block text-xs font-medium text-slate-300 mb-1">Chọn Thiết Bị</label>
+                            <select id="timerTarget" class="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
+                                <option value="led">Đèn Phòng Khách</option>
+                                <option value="fan">Quạt Gió</option>
+                            </select>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-medium text-slate-300 mb-1">Thời Gian Chạy</label>
+                                <input type="time" id="timerTime" required class="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-slate-300 mb-1">Hành Động</label>
+                                <select id="timerAction" class="w-full bg-slate-800/80 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
+                                    <option value="ON">BẬT (ON)</option>
+                                    <option value="OFF">TẮT (OFF)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="flex items-center gap-2">
+                            <input type="checkbox" id="timerRepeat" class="rounded border-slate-700 bg-slate-800 text-indigo-500 focus:ring-0">
+                            <label for="timerRepeat" class="text-xs text-slate-300">Lặp lại hàng ngày</label>
+                        </div>
+
+                        <button type="submit" class="w-full py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-medium text-sm transition-all shadow-lg shadow-indigo-500/25 flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-paper-plane"></i> Gửi Cấu Hình Timer
+                        </button>
+                    </form>
+
+                    <!-- Active Timers List -->
+                    <div class="mt-4 pt-4 border-t border-slate-700/50">
+                        <p class="text-xs font-medium text-slate-400 mb-2">Lịch hẹn hiện tại:</p>
+                        <div id="activeTimersList" class="space-y-2 text-xs text-slate-300 max-h-32 overflow-y-auto">
+                            <p class="text-slate-500 italic">Chưa có lịch hẹn nào được lưu.</p>
+                        </div>
+                    </div>
+                </div>
+
+            </section>
+
+            <!-- RIGHT COLUMN: SENSOR METRICS & REALTIME GRAPH (8 cols) -->
+            <section class="lg:col-span-8 flex flex-col gap-6">
+
+                <!-- SENSOR CARDS TOP ROW -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    
+                    <!-- Temperature Card -->
+                    <div class="glass-panel rounded-2xl p-4 flex flex-col justify-between relative overflow-hidden">
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs font-medium text-slate-400">Nhiệt độ</span>
+                            <div class="w-8 h-8 rounded-lg bg-rose-500/10 text-rose-400 flex items-center justify-center">
+                                <i class="fa-solid fa-temperature-half"></i>
+                            </div>
+                        </div>
+                        <div class="my-3">
+                            <span id="tempVal" class="text-3xl font-bold text-white">--</span>
+                            <span class="text-sm text-slate-400 ml-1">°C</span>
+                        </div>
+                        <div class="text-[11px] text-slate-400 flex justify-between items-center">
+                            <span>DHT22 Sensor</span>
+                            <span id="tempTrend" class="text-emerald-400"><i class="fa-solid fa-circle-check"></i> Đang cập nhật</span>
+                        </div>
+                    </div>
+
+                    <!-- Humidity Card -->
+                    <div class="glass-panel rounded-2xl p-4 flex flex-col justify-between relative overflow-hidden">
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs font-medium text-slate-400">Độ ẩm Air</span>
+                            <div class="w-8 h-8 rounded-lg bg-cyan-500/10 text-cyan-400 flex items-center justify-center">
+                                <i class="fa-solid fa-droplet"></i>
+                            </div>
+                        </div>
+                        <div class="my-3">
+                            <span id="humidityVal" class="text-3xl font-bold text-white">--</span>
+                            <span class="text-sm text-slate-400 ml-1">%</span>
+                        </div>
+                        <div class="text-[11px] text-slate-400 flex justify-between items-center">
+                            <span>Độ ẩm tối ưu: 40-70%</span>
+                        </div>
+                    </div>
+
+                    <!-- Motion Sensor Card (HC-SR501) -->
+                    <div class="glass-panel rounded-2xl p-4 flex flex-col justify-between relative overflow-hidden sm:col-span-2 lg:col-span-1">
+                        <div class="flex items-center justify-between">
+                            <span class="text-xs font-medium text-slate-400">HC-SR501 Chuyển động</span>
+                            <div id="motionIconBg" class="w-8 h-8 rounded-lg bg-slate-800 text-slate-400 flex items-center justify-center transition-all">
+                                <i class="fa-solid fa-person-walking"></i>
+                            </div>
+                        </div>
+                        <div class="my-3 flex items-center gap-3">
+                            <span id="motionVal" class="text-xl font-bold text-slate-300">AN TOÀN</span>
+                        </div>
+                        <div class="text-[11px] text-slate-400 flex justify-between items-center">
+                            <span>Lần cuối: <span id="motionLastSeen">--:--:--</span></span>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- LIGHT LUX GAUGE AND CHART SECTION -->
+                <div class="grid grid-cols-1 md:grid-cols-12 gap-6">
+                    
+                    <!-- Light Lux Gauge Card (4 cols) -->
+                    <div class="md:col-span-4 glass-panel rounded-2xl p-5 flex flex-col items-center justify-between">
+                        <div class="w-full flex justify-between items-center mb-2">
+                            <span class="text-sm font-semibold text-white"><i class="fa-solid fa-sun text-amber-400 mr-2"></i>Ánh Sáng Lux</span>
+                            <span class="text-xs text-slate-400">BH1750 / LDR</span>
+                        </div>
+
+                        <!-- Semi-circle Gauge Canvas Container -->
+                        <div class="relative w-48 h-32 flex items-center justify-center mt-2">
+                            <canvas id="luxGaugeChart"></canvas>
+                            <div class="absolute bottom-2 text-center">
+                                <span id="luxVal" class="text-2xl font-bold text-white">--</span>
+                                <span class="text-xs text-slate-400 block">Lux</span>
+                            </div>
+                        </div>
+
+                        <div class="w-full text-center text-xs text-slate-400 mt-2 border-t border-slate-700/40 pt-2">
+                            <span id="luxLevelTag" class="px-2 py-0.5 rounded-md bg-slate-800 text-slate-300">Đang chờ dữ liệu...</span>
+                        </div>
+                    </div>
+
+                    <!-- Realtime Temp & Humidity Graph (8 cols) -->
+                    <div class="md:col-span-8 glass-panel rounded-2xl p-5">
+                        <div class="flex items-center justify-between mb-4">
+                            <div>
+                                <h3 class="text-sm font-semibold text-white">Đồ Thị Real-time Nhiệt Độ & Độ Ẩm</h3>
+                                <p class="text-xs text-slate-400">Cập nhật tức thì từ ESP32 qua WebSockets</p>
+                            </div>
+                            <span class="text-xs bg-indigo-500/20 text-indigo-300 px-2.5 py-1 rounded-lg border border-indigo-500/30">
+                                Realtime
+                            </span>
+                        </div>
+                        <div class="h-60 w-full">
+                            <canvas id="realtimeChart"></canvas>
+                        </div>
+                    </div>
+
+                </div>
+
+                <!-- REALTIME MQTT MESSAGE LOG CONTAINER -->
+                <div class="glass-panel rounded-2xl p-5">
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 class="text-xs font-semibold text-slate-300 flex items-center gap-2">
+                            <i class="fa-solid fa-terminal text-emerald-400"></i> Nhật Ký Đóng Gói Tin MQTT (WebSocket Stream)
+                        </h3>
+                        <button onclick="clearLog()" class="text-[11px] text-slate-400 hover:text-white transition-colors">
+                            Xóa log
+                        </button>
+                    </div>
+                    <div id="mqttLog" class="h-28 overflow-y-auto bg-slate-950/70 rounded-xl p-3 font-mono text-[11px] text-emerald-400 space-y-1 border border-slate-800">
+                        <div class="text-slate-500">[System] Khởi tạo giao diện Dashboard... Ready!</div>
+                    </div>
+                </div>
+
+            </section>
+
+        </main>
+    </div>
+
+    <!-- CONFIGURATION MODAL -->
+    <div id="configModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center hidden p-4">
+        <div class="glass-panel max-w-md w-full rounded-2xl p-6 border border-white/20 shadow-2xl relative">
+            <button onclick="closeConfigModal()" class="absolute top-4 right-4 text-slate-400 hover:text-white">
+                <i class="fa-solid fa-xmark text-lg"></i>
+            </button>
+
+            <h3 class="text-lg font-bold text-white mb-4 flex items-center gap-2">
+                <i class="fa-solid fa-network-wired text-indigo-400"></i> Cấu Hình MQTT Broker
+            </h3>
+
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-xs font-medium text-slate-300 mb-1">Host Broker (WebSocket)</label>
+                    <input type="text" id="cfgHost" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-300 mb-1">Port (WS/WSS)</label>
+                        <input type="number" id="cfgPort" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-300 mb-1">Giao Thức</label>
+                        <select id="cfgProtocol" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
+                            <option value="ws">ws:// (Unencrypted)</option>
+                            <option value="wss">wss:// (Encrypted)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-medium text-slate-300 mb-1">Client ID</label>
+                    <input type="text" id="cfgClientId" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
+                </div>
+
+                <div class="pt-3 flex gap-3">
+                    <button onclick="saveAndReconnectMQTT()" class="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-sm transition-all shadow-lg shadow-indigo-600/30">
+                        Kết Nối Lại
+                    </button>
+                    <button onclick="closeConfigModal()" class="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-medium text-sm transition-all">
+                        Hủy
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * =========================================================================
+         * 1. MQTT CONFIGURATION OBJECT (TẠI ĐẦU FILE SCRIPT NHƯ YÊU CẦU)
+         * =========================================================================
+         * Bạn có thể dễ dàng sửa thông số Host, Port, Topics ở đây để khớp với ESP32
+         */
+        const MQTT_CONFIG = {
+            // HiveMQ WS Broker Info
+            host: 'broker.hivemq.com',
+            port: 8004, // WebSocket Port cho HiveMQ (ws://)
+            protocol: 'ws',
+            path: '/mqtt',
+            clientId: 'web_dashboard_' + Math.random().toString(16).substr(2, 8),
+            
+            // Reconnect Settings
+            keepalive: 60,
+            reconnectPeriod: 3000,
+            
+            // TOPICS DEFINITION FOR ESP-IDF C BACKEND
+            topics: {
+                // Publish from Web -> ESP32
+                controlLed: 'esp32_vuVanNGhia/home/led/set',
+                controlFan: 'esp32_vuVanNGhia/home/fan/set',
+                controlFanSpeed: 'esp32_vuVanNGhia/home/fan/speed/set',
+                configTimer: 'esp32_vuVanNGhia/home/config/timer',
+
+                // Subscribe from ESP32 -> Web
+                sensorTempHum: 'esp32_vuVanNGhia/home/sensors/dht22',
+                sensorLux: 'esp32_vuVanNGhia/home/sensors/lux',
+                sensorMotion: 'esp32_vuVanNGhia/home/sensors/motion',
+                espStatus: 'esp32_vuVanNGhia/home/status',
+                deviceFeedback: 'esp32_vuVanNGhia/home/feedback'
+            }
+        };
+
+        let mqttClient = null;
+        let isSimulating = false;
+        let simInterval = null;
+        let realtimeChart = null;
+        let luxGaugeChart = null;
+        let activeTimers = [];
+
+        // Chart Data Buffers
+        const maxDataPoints = 12;
+        const chartLabels = [];
+        const tempChartData = [];
+        const humChartData = [];
+
+        window.addEventListener('DOMContentLoaded', () => {
+            initCharts();
+            populateConfigModalFields();
+            connectMQTT();
+        });
+
+        /**
+         * =========================================================================
+         * 2. MQTT CLIENT CONNECTOR & EVENT HANDLERS
+         * =========================================================================
+         */
+        function connectMQTT() {
+            const connectUrl = `${MQTT_CONFIG.protocol}://${MQTT_CONFIG.host}:${MQTT_CONFIG.port}${MQTT_CONFIG.path || ''}`;
+            logMQTT(`Đang kết nối tới Broker: ${connectUrl} (Client ID: ${MQTT_CONFIG.clientId})...`);
+
+            const options = {
+                clientId: MQTT_CONFIG.clientId,
+                keepalive: MQTT_CONFIG.keepalive,
+                reconnectPeriod: MQTT_CONFIG.reconnectPeriod,
+                clean: true
+            };
+
+            try {
+                if (mqttClient) {
+                    mqttClient.end();
+                }
+
+                mqttClient = mqtt.connect(connectUrl, options);
+
+                mqttClient.on('connect', () => {
+                    logMQTT('✅ Kết nối MQTT Broker thành công!');
+                    updateMqttStatusUI(true);
+                    subscribeToTopics();
+                });
+
+                mqttClient.on('message', (topic, message) => {
+                    handleIncomingMqttMessage(topic, message.toString());
+                });
+
+                mqttClient.on('error', (err) => {
+                    logMQTT(`❌ Lỗi MQTT: ${err.message}`);
+                    updateMqttStatusUI(false);
+                });
+
+                mqttClient.on('close', () => {
+                    logMQTT('⚠️ Mất kết nối MQTT Broker.');
+                    updateMqttStatusUI(false);
+                });
+
+            } catch (err) {
+                logMQTT(`❌ Lỗi khởi tạo client: ${err.message}`);
+                updateMqttStatusUI(false);
+            }
+        }
+
+        function subscribeToTopics() {
+            if (!mqttClient || !mqttClient.connected) return;
+
+            const topicsToSub = [
+                MQTT_CONFIG.topics.sensorTempHum,
+                MQTT_CONFIG.topics.sensorLux,
+                MQTT_CONFIG.topics.sensorMotion,
+                MQTT_CONFIG.topics.espStatus,
+                MQTT_CONFIG.topics.deviceFeedback
+            ];
+
+            topicsToSub.forEach(topic => {
+                mqttClient.subscribe(topic, { qos: 1 }, (err) => {
+                    if (!err) {
+                        logMQTT(`Subscribed: ${topic}`);
+                    } else {
+                        logMQTT(`Lỗi subscribe ${topic}: ${err.message}`);
+                    }
+                });
+            });
+        }
+
+        /**
+         * =========================================================================
+         * 3. INCOMING MESSAGE PARSER & REALTIME UI UPDATER
+         * =========================================================================
+         */
+        function handleIncomingMqttMessage(topic, payloadStr) {
+            logMQTT(`📩 [REC] ${topic}: ${payloadStr}`);
+
+            try {
+                let json = {};
+                // Check if payload is valid JSON
+                if (payloadStr.startsWith('{') || payloadStr.startsWith('[')) {
+                    json = JSON.parse(payloadStr);
+                }
+
+                // 1. Sensor DHT22 (Nhiệt độ & Độ ẩm)
+                if (topic === MQTT_CONFIG.topics.sensorTempHum) {
+                    const temp = json.temp ?? parseFloat(payloadStr);
+                    const hum = json.humidity ?? json.hum;
+                    if (temp !== undefined) updateTemperatureUI(temp);
+                    if (hum !== undefined) updateHumidityUI(hum);
+                    if (temp !== undefined && hum !== undefined) {
+                        pushChartData(temp, hum);
+                    }
+                }
+
+                // 2. Sensor Lux
+                else if (topic === MQTT_CONFIG.topics.sensorLux) {
+                    const lux = json.lux ?? parseFloat(payloadStr);
+                    if (!isNaN(lux)) updateLuxUI(lux);
+                }
+
+                // 3. Sensor HC-SR501 (Chuyển động)
+                else if (topic === MQTT_CONFIG.topics.sensorMotion) {
+                    const motion = json.motion ?? (payloadStr === '1' || payloadStr.toLowerCase() === 'true' || payloadStr.toUpperCase() === 'DETECTED');
+                    updateMotionUI(motion);
+                }
+
+                // 4. ESP32 Heartbeat / Status
+                else if (topic === MQTT_CONFIG.topics.espStatus) {
+                    const isOnline = json.status === 'online' || payloadStr.toLowerCase() === 'online';
+                    updateEspStatusUI(isOnline, json.ip || 'ESP-IDF');
+                }
+
+                // 5. Feedback state from ESP32
+                else if (topic === MQTT_CONFIG.topics.deviceFeedback) {
+                    if (json.device === 'led') {
+                        document.getElementById('ledToggle').checked = json.state === 'ON';
+                        updateLedVisuals(json.state === 'ON');
+                    } else if (json.device === 'fan') {
+                        document.getElementById('fanToggle').checked = json.state === 'ON';
+                        updateFanVisuals(json.state === 'ON');
+                    }
+                }
+
+            } catch (err) {
+                logMQTT(`❌ Lỗi xử lý payload: ${err.message}`);
+            }
+        }
+
+        /**
+         * =========================================================================
+         * 4. OUTGOING PUBLISH COMMANDS (WEB -> ESP32)
+         * =========================================================================
+         */
+        function toggleDevice(device, isChecked) {
+            const state = isChecked ? 'ON' : 'OFF';
+            let topic = '';
+            
+            if (device === 'led') {
+                topic = MQTT_CONFIG.topics.controlLed;
+                updateLedVisuals(isChecked);
+            } else if (device === 'fan') {
+                topic = MQTT_CONFIG.topics.controlFan;
+                updateFanVisuals(isChecked);
+            }
+
+            // Publish Plain Text hoặc JSON ngắn cho ESP32 dễ parse
+            const payload = JSON.stringify({
+                device: device,
+                state: state,
+                timestamp: Date.now()
+            });
+
+            publishMQTT(topic, payload);
+        }
+
+        function sendFanSpeed(value) {
+            document.getElementById('fanSpeedVal').innerText = `${value} %`;
+            const payload = JSON.stringify({
+                speed: parseInt(value),
+                pwm: Math.round((parseInt(value) / 100) * 255)
+            });
+            publishMQTT(MQTT_CONFIG.topics.controlFanSpeed, payload);
+        }
+
+        function handleScheduleSubmit(e) {
+            e.preventDefault();
+            const target = document.getElementById('timerTarget').value;
+            const time = document.getElementById('timerTime').value;
+            const action = document.getElementById('timerAction').value;
+            const repeat = document.getElementById('timerRepeat').checked;
+
+            const schedulePayload = {
+                target: target,
+                time: time,
+                action: action,
+                repeat: repeat,
+                enabled: true
+            };
+
+            const jsonStr = JSON.stringify(schedulePayload);
+            publishMQTT(MQTT_CONFIG.topics.configTimer, jsonStr);
+
+            // Add to UI list
+            activeTimers.push(schedulePayload);
+            renderTimersList();
+            
+            logMQTT(`🕒 Đã gửi lịch hẹn mới cho ESP32: ${jsonStr}`);
+        }
+
+        function publishMQTT(topic, payload) {
+            logMQTT(`📤 [PUB] ${topic}: ${payload}`);
+            if (mqttClient && mqttClient.connected) {
+                mqttClient.publish(topic, payload, { qos: 1, retain: false });
+            } else if (!isSimulating) {
+                logMQTT('⚠️ Không thể gửi: MQTT Broker chưa kết nối!');
+            }
+        }
+
+        /**
+         * =========================================================================
+         * 5. UI VISUAL UPDATERS & UI FEEDBACK
+         * =========================================================================
+         */
+        function updateTemperatureUI(val) {
+            const el = document.getElementById('tempVal');
+            el.innerText = typeof val === 'number' ? val.toFixed(1) : val;
+        }
+
+        function updateHumidityUI(val) {
+            const el = document.getElementById('humidityVal');
+            el.innerText = typeof val === 'number' ? val.toFixed(1) : val;
+        }
+
+        function updateLuxUI(val) {
+            const luxVal = Math.round(val);
+            document.getElementById('luxVal').innerText = luxVal;
+
+            const tagEl = document.getElementById('luxLevelTag');
+            if (luxVal < 100) {
+                tagEl.innerText = 'Tối / Phòng Đêm';
+                tagEl.className = 'px-2 py-0.5 rounded-md bg-indigo-950 text-indigo-300';
+            } else if (luxVal < 500) {
+                tagEl.innerText = 'Ánh sáng trong nhà';
+                tagEl.className = 'px-2 py-0.5 rounded-md bg-emerald-950 text-emerald-300';
+            } else {
+                tagEl.innerText = 'Ánh sáng Rất Sáng';
+                tagEl.className = 'px-2 py-0.5 rounded-md bg-amber-950 text-amber-300';
+            }
+
+            // Update Gauge Chart
+            if (luxGaugeChart) {
+                luxGaugeChart.data.datasets[0].data = [Math.min(luxVal, 1000), Math.max(0, 1000 - luxVal)];
+                luxGaugeChart.update();
+            }
+        }
+
+        function updateMotionUI(detected) {
+            const txt = document.getElementById('motionVal');
+            const iconBg = document.getElementById('motionIconBg');
+            const timeEl = document.getElementById('motionLastSeen');
+
+            const nowStr = new Date().toLocaleTimeString();
+
+            if (detected) {
+                txt.innerText = 'PHÁT HIỆN!';
+                txt.className = 'text-xl font-bold text-rose-400 animate-pulse';
+                iconBg.className = 'w-8 h-8 rounded-lg bg-rose-500/20 text-rose-400 flex items-center justify-center animate-bounce';
+                timeEl.innerText = nowStr;
+            } else {
+                txt.innerText = 'AN TOÀN';
+                txt.className = 'text-xl font-bold text-slate-300';
+                iconBg.className = 'w-8 h-8 rounded-lg bg-slate-800 text-slate-400 flex items-center justify-center';
+            }
+        }
+
+        function updateLedVisuals(isOn) {
+            const iconBox = document.getElementById('ledIconBox');
+            const text = document.getElementById('ledStatusText');
+            if (isOn) {
+                iconBox.className = 'w-10 h-10 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center shadow-lg shadow-amber-500/20';
+                text.innerText = 'Trạng thái: BẬT';
+                text.className = 'text-xs text-amber-400 font-medium';
+            } else {
+                iconBox.className = 'w-10 h-10 rounded-lg bg-slate-800 text-slate-400 flex items-center justify-center';
+                text.innerText = 'Trạng thái: TẮT';
+                text.className = 'text-xs text-slate-400';
+            }
+        }
+
+        function updateFanVisuals(isOn) {
+            const iconBox = document.getElementById('fanIconBox');
+            const text = document.getElementById('fanStatusText');
+            if (isOn) {
+                iconBox.className = 'w-10 h-10 rounded-lg bg-cyan-500/20 text-cyan-400 flex items-center justify-center shadow-lg shadow-cyan-500/20 animate-spin';
+                text.innerText = 'Trạng thái: BẬT';
+                text.className = 'text-xs text-cyan-400 font-medium';
+            } else {
+                iconBox.className = 'w-10 h-10 rounded-lg bg-slate-800 text-slate-400 flex items-center justify-center';
+                text.innerText = 'Trạng thái: TẮT';
+                text.className = 'text-xs text-slate-400';
+            }
+        }
+
+        function updateMqttStatusUI(connected) {
+            const dot = document.getElementById('mqttDot');
+            const pulse = document.getElementById('mqttPulse');
+            const txt = document.getElementById('mqttStatusText');
+
+            if (connected) {
+                dot.className = 'relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500';
+                pulse.className = 'animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75';
+                txt.innerText = 'Broker: Connected';
+                txt.className = 'text-xs font-semibold text-emerald-400';
+            } else {
+                dot.className = 'relative inline-flex rounded-full h-2.5 w-2.5 bg-rose-500';
+                pulse.className = 'animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75';
+                txt.innerText = 'Broker: Disconnected';
+                txt.className = 'text-xs font-semibold text-rose-400';
+            }
+        }
+
+        function updateEspStatusUI(online, ipInfo) {
+            const dot = document.getElementById('espDot');
+            const pulse = document.getElementById('espPulse');
+            const txt = document.getElementById('espStatusText');
+
+            if (online) {
+                dot.className = 'relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500';
+                pulse.className = 'animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75';
+                txt.innerText = `ESP32: Online (${ipInfo})`;
+                txt.className = 'text-xs font-semibold text-emerald-400';
+            } else {
+                dot.className = 'relative inline-flex rounded-full h-2.5 w-2.5 bg-slate-500';
+                pulse.className = 'animate-ping absolute inline-flex h-full w-full rounded-full bg-slate-400 opacity-75';
+                txt.innerText = 'ESP32: Offline';
+                txt.className = 'text-xs font-semibold text-slate-400';
+            }
+        }
+
+        function renderTimersList() {
+            const listContainer = document.getElementById('activeTimersList');
+            if (activeTimers.length === 0) {
+                listContainer.innerHTML = `<p class="text-slate-500 italic">Chưa có lịch hẹn nào được lưu.</p>`;
+                return;
+            }
+
+            listContainer.innerHTML = activeTimers.map((t, idx) => `
+                <div class="flex items-center justify-between bg-slate-800/50 p-2 rounded-lg border border-slate-700/50">
+                    <div>
+                        <span class="font-bold text-indigo-300 uppercase">${t.target}</span>
+                        <span>➔ ${t.action} lúc ${t.time}</span>
+                        ${t.repeat ? '<span class="text-[10px] bg-slate-700 px-1 rounded ml-1">Lặp lại</span>' : ''}
+                    </div>
+                    <button onclick="removeTimer(${idx})" class="text-rose-400 hover:text-rose-300 px-1">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        function removeTimer(index) {
+            activeTimers.splice(index, 1);
+            renderTimersList();
+        }
+
+        function logMQTT(msg) {
+            const logBox = document.getElementById('mqttLog');
+            const timeStr = new Date().toLocaleTimeString();
+            const logItem = document.createElement('div');
+            logItem.innerText = `[${timeStr}] ${msg}`;
+            logBox.appendChild(logItem);
+            logBox.scrollTop = logBox.scrollHeight;
+        }
+
+        function clearLog() {
+            document.getElementById('mqttLog').innerHTML = '';
+        }
+
+        /**
+         * =========================================================================
+         * 6. CHART.JS REALTIME GRAPH & GAUGE INITIALIZATION
+         * =========================================================================
+         */
+        function initCharts() {
+            // Realtime Line Chart (Temp & Humidity)
+            const ctxLine = document.getElementById('realtimeChart').getContext('2d');
+            realtimeChart = new Chart(ctxLine, {
+                type: 'line',
+                data: {
+                    labels: chartLabels,
+                    datasets: [
+                        {
+                            label: 'Nhiệt độ (°C)',
+                            borderColor: '#f43f5e',
+                            backgroundColor: 'rgba(244, 63, 94, 0.1)',
+                            fill: true,
+                            tension: 0.4,
+                            data: tempChartData,
+                            borderWidth: 2
+                        },
+                        {
+                            label: 'Độ ẩm (%)',
+                            borderColor: '#06b6d4',
+                            backgroundColor: 'rgba(6, 182, 212, 0.1)',
+                            fill: true,
+                            tension: 0.4,
+                            data: humChartData,
+                            borderWidth: 2
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { labels: { color: '#94a3b8', font: { family: 'Inter', size: 11 } } }
+                    },
+                    scales: {
+                        x: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: { color: '#64748b', font: { size: 10 } }
+                        },
+                        y: {
+                            grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                            ticks: { color: '#64748b', font: { size: 10 } }
+                        }
+                    }
+                }
+            });
+
+            // Lux Doughnut Gauge Chart
+            const ctxGauge = document.getElementById('luxGaugeChart').getContext('2d');
+            luxGaugeChart = new Chart(ctxGauge, {
+                type: 'doughnut',
+                data: {
+                    datasets: [{
+                        data: [0, 1000],
+                        backgroundColor: ['#f59e0b', 'rgba(255,255,255,0.05)'],
+                        borderWidth: 0,
+                        circumference: 180,
+                        rotation: 270
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '75%',
+                    plugins: { tooltip: { enabled: false } }
+                }
+            });
+        }
+
+        function pushChartData(temp, hum) {
+            const timeLabel = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+            if (chartLabels.length >= maxDataPoints) {
+                chartLabels.shift();
+                tempChartData.shift();
+                humChartData.shift();
+            }
+
+            chartLabels.push(timeLabel);
+            tempChartData.push(temp);
+            humChartData.push(hum);
+
+            if (realtimeChart) {
+                realtimeChart.update();
+            }
+        }
+
+        /**
+         * =========================================================================
+         * 7. SIMULATION MODE (DÙNG ĐỂ TEST GIAO DIỆN KHI KHÔNG CÓ ESP32 THẬT)
+         * =========================================================================
+         */
+        function toggleSimMode() {
+            isSimulating = !isSimulating;
+            const btnText = document.getElementById('simStatusText');
+
+            if (isSimulating) {
+                btnText.innerText = 'Giả lập: BẬT';
+                logMQTT('🧪 Đã BẬT Chế độ giả lập dữ liệu ESP32!');
+                updateEspStatusUI(true, '192.168.1.100 (Sim)');
+
+                simInterval = setInterval(() => {
+                    const mockTemp = 28 + Math.sin(Date.now() / 3000) * 4 + (Math.random() * 0.8);
+                    const mockHum = 60 + Math.cos(Date.now() / 4000) * 10 + (Math.random() * 1.5);
+                    const mockLux = Math.floor(350 + Math.sin(Date.now() / 2000) * 200 + (Math.random() * 50));
+                    const mockMotion = Math.random() > 0.7;
+
+                    updateTemperatureUI(mockTemp);
+                    updateHumidityUI(mockHum);
+                    pushChartData(mockTemp, mockHum);
+                    updateLuxUI(mockLux);
+                    updateMotionUI(mockMotion);
+
+                }, 2500);
+
+            } else {
+                btnText.innerText = 'Giả lập: TẮT';
+                logMQTT('🧪 Đã TẮT Chế độ giả lập.');
+                clearInterval(simInterval);
+                updateEspStatusUI(false);
+            }
+        }
+
+        /**
+         * =========================================================================
+         * 8. MODAL CONFIGURATION LOGIC
+         * =========================================================================
+         */
+        function populateConfigModalFields() {
+            document.getElementById('cfgHost').value = MQTT_CONFIG.host;
+            document.getElementById('cfgPort').value = MQTT_CONFIG.port;
+            document.getElementById('cfgProtocol').value = MQTT_CONFIG.protocol;
+            document.getElementById('cfgClientId').value = MQTT_CONFIG.clientId;
+        }
+
+        function openConfigModal() {
+            document.getElementById('configModal').classList.remove('hidden');
+        }
+
+        function closeConfigModal() {
+            document.getElementById('configModal').classList.add('hidden');
+        }
+
+        function saveAndReconnectMQTT() {
+            MQTT_CONFIG.host = document.getElementById('cfgHost').value.trim();
+            MQTT_CONFIG.port = parseInt(document.getElementById('cfgPort').value);
+            MQTT_CONFIG.protocol = document.getElementById('cfgProtocol').value;
+            MQTT_CONFIG.clientId = document.getElementById('cfgClientId').value.trim();
+
+            closeConfigModal();
+            connectMQTT();
+        }
+    </script>
+</body>
+</html>
+
+<!-- 
+====================================================================================================
+                        ESP-IDF (C BACKEND) MQTT INTEGRATION REFERENCE GUIDE
+====================================================================================================
+
+Bảng tóm tắt cấu trúc Topic & Payload để lập trình trên C backend (Sử dụng esp-mqtt & cJSON trong ESP-IDF):
+
++-----------------------------------+----------+---------------------+-------------------------------+------+--------+
+| MQTT Topic                        | Role ESP | Định dạng Payload   | Ví dụ Payload                 | QoS  | Retain |
++-----------------------------------+----------+---------------------+-------------------------------+------+--------+
+| esp32_vuVanNGhia/home/led/set                | SUB      | JSON                | {"device":"led","state":"ON"}  | 1    | false  |
+| esp32_vuVanNGhia/home/fan/set                 | SUB      | JSON                | {"device":"fan","state":"OFF"}| 1    | false  |
+| esp32_vuVanNGhia/home/fan/speed/set          | SUB      | JSON                | {"speed":75,"pwm":191}        | 1    | false  |
+| esp32_vuVanNGhia/home/config/timer            | SUB      | JSON                | {"target":"led","time":"06:30"| 1    | false  |
+|                                   |          |                     |  ,"action":"ON","repeat":true}|      |        |
+| esp32_vuVanNGhia/home/sensors/dht22          | PUB      | JSON                | {"temp":29.5,"humidity":65.2} | 1    | false  |
+| esp32_vuVanNGhia/home/sensors/lux            | PUB      | JSON / Plain text   | {"lux":420.5} hoặc "420.5"     | 0    | false  |
+| esp32_vuVanNGhia/home/sensors/motion         | PUB      | JSON / Plain text   | {"motion":true} hoặc "DETECTED"| 1   | false  |
+| esp32_vuVanNGhia/home/status                 | PUB      | JSON                | {"status":"online","ip":"..."}| 1    | true   |
+| esp32_vuVanNGhia/home/feedback               | PUB      | JSON                | {"device":"led","state":"ON"}  | 1    | false  |
++-----------------------------------+----------+---------------------+-------------------------------+------+--------+
+
+----------------------------------------------------------------------------------------------------
+VÍ DỤ CODE C ESP-IDF (Sử dụng cJSON & esp_mqtt_client_handle_t):
+----------------------------------------------------------------------------------------------------
+
+1. ĐĂNG KÝ TOPIC TRONG EVENT HANDLE:
+   static void mqtt_event_handler(...) {
+       esp_mqtt_event_handle_t event = event_data;
+       switch (event->event_id) {
+           case MQTT_EVENT_CONNECTED:
+               esp_mqtt_client_subscribe(client, "esp32_vuVanNGhia/home/led/set", 1);
+               esp_mqtt_client_subscribe(client, "esp32_vuVanNGhia/home/fan/set", 1);
+               esp_mqtt_client_subscribe(client, "esp32_vuVanNGhia/home/fan/speed/set", 1);
+               esp_mqtt_client_subscribe(client, "esp32_vuVanNGhia/home/config/timer", 1);
+               
+               // Gửi trạng thái Online LWT / Retain
+               esp_mqtt_client_publish(client, "esp32_vuVanNGhia/home/status", "{\"status\":\"online\",\"ip\":\"192.168.1.50\"}", 0, 1, 1);
+               break;
+
+           case MQTT_EVENT_DATA:
+               // Parse topic & data
+               char topic[64] = {0};
+               snprintf(topic, event->topic_len + 1, "%s", event->topic);
+               
+               cJSON *root = cJSON_Parse(event->data);
+               if (root != NULL) {
+                   if (strcmp(topic, "esp32_vuVanNGhia/home/led/set") == 0) {
+                       cJSON *state = cJSON_GetObjectItem(root, "state");
+                       if (state && strcmp(state->valuestring, "ON") == 0) {
+                           gpio_set_level(GPIO_NUM_2, 1); // Bật LED
+                       } else {
+                           gpio_set_level(GPIO_NUM_2, 0); // Tắt LED
+                       }
+                   }
+                   cJSON_Delete(root);
+               }
+               break;
+       }
+   }
+
+2. GỬI DỮ LIỆU CẢM BIẾN LÊN WEB DASHBOARD:
+   void publish_sensor_data(esp_mqtt_client_handle_t client, float temp, float humidity) {
+       cJSON *root = cJSON_CreateObject();
+       cJSON_AddNumberToObject(root, "temp", temp);
+       cJSON_AddNumberToObject(root, "humidity", humidity);
+       
+       char *post_data = cJSON_PrintUnformatted(root);
+       esp_mqtt_client_publish(client, "esp32_vuVanNGhia/home/sensors/dht22", post_data, 0, 1, 0);
+       
+       cJSON_Delete(root);
+       free(post_data);
+   }
+
+====================================================================================================
+-->
