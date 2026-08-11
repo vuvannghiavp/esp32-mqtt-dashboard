@@ -133,6 +133,91 @@ static void handle_timer_config(const char *data, int data_len)
 
     cJSON_Delete(root);
 }
+
+// ================================================================
+// HÀM 3: Xử lý chuyển đổi chế độ LED (Auto/Manual)
+// ================================================================
+static void handle_led_mode_switch(const char *data, int data_len)
+{
+    cJSON *root = cJSON_ParseWithLength(data, data_len);
+    if (root == NULL)
+    {
+        ESP_LOGE(TAG, "[LED MODE] Lỗi parse JSON");
+        return;
+    }
+
+    cJSON *mode_item = cJSON_GetObjectItem(root, "mode");
+    if (!cJSON_IsString(mode_item))
+    {
+        ESP_LOGW(TAG, "[LED MODE] Payload thiếu 'mode' (auto/manual)");
+        cJSON_Delete(root);
+        return;
+    }
+
+    const char *mode_str = mode_item->valuestring;
+    bool auto_mode = (strcmp(mode_str, "auto") == 0);
+
+    s_equipment_status.led_auto_mode = auto_mode;
+    ESP_LOGI(TAG, "[LED MODE] Chuyển sang: %s", auto_mode ? "AUTO" : "MANUAL");
+
+    // Phản hồi lại dashboard
+    cJSON *response = cJSON_CreateObject();
+    cJSON_AddStringToObject(response, "mode", auto_mode ? "auto" : "manual");
+    cJSON_AddBoolToObject(response, "success", true);
+    char *out = cJSON_PrintUnformatted(response);
+    esp_mqtt_client_publish(client, "esp32_vuVanNGhia/home/led/mode/status", out, 0, 1, 1);
+    cJSON_free(out);
+    cJSON_Delete(response);
+
+    cJSON_Delete(root);
+}
+
+// ================================================================
+// HÀM 4: Xử lý bật/tắt đèn MANUAL
+// ================================================================
+static void handle_led_manual_control(const char *data, int data_len)
+{
+    cJSON *root = cJSON_ParseWithLength(data, data_len);
+    if (root == NULL)
+    {
+        ESP_LOGE(TAG, "[LED MANUAL] Lỗi parse JSON");
+        return;
+    }
+
+    cJSON *state_item = cJSON_GetObjectItem(root, "state");
+    if (!cJSON_IsBool(state_item) && !cJSON_IsNumber(state_item))
+    {
+        ESP_LOGW(TAG, "[LED MANUAL] Payload thiếu 'state' (true/false)");
+        cJSON_Delete(root);
+        return;
+    }
+
+    bool led_on = cJSON_IsTrue(state_item) || (cJSON_IsNumber(state_item) && state_item->valueint != 0);
+    
+    // Chỉ điều khiển thủ công khi ở chế độ MANUAL
+    if (!s_equipment_status.led_auto_mode)
+    {
+        gpio_set_level(RELAY1_GPIO, led_on ? 1 : 0);
+        s_equipment_status.led_state = led_on;
+        ESP_LOGI(TAG, "[LED MANUAL] Đèn: %s", led_on ? "BẬT" : "TẮT");
+    }
+    else
+    {
+        ESP_LOGW(TAG, "[LED MANUAL] Ở chế độ AUTO, không thể điều khiển thủ công");
+    }
+
+    // Phản hồi lại
+    cJSON *response = cJSON_CreateObject();
+    cJSON_AddBoolToObject(response, "state", s_equipment_status.led_state);
+    cJSON_AddBoolToObject(response, "auto_mode", s_equipment_status.led_auto_mode);
+    char *out = cJSON_PrintUnformatted(response);
+    esp_mqtt_client_publish(client, "esp32_vuVanNGhia/home/led/control/status", out, 0, 1, 1);
+    cJSON_free(out);
+    cJSON_Delete(response);
+
+    cJSON_Delete(root);
+}
+
 void mqtt_data_dispatch(const char *topic, int topic_len,
                         const char *data, int data_len)
 {
@@ -145,6 +230,16 @@ void mqtt_data_dispatch(const char *topic, int topic_len,
              topic_len == strlen("esp32_vuVanNGhia/home/config/timer"))
     {
         handle_timer_config(data, data_len);
+    }
+    else if (strncmp(topic, "esp32_vuVanNGhia/home/led/mode/set", topic_len) == 0 &&
+             topic_len == strlen("esp32_vuVanNGhia/home/led/mode/set"))
+    {
+        handle_led_mode_switch(data, data_len);
+    }
+    else if (strncmp(topic, "esp32_vuVanNGhia/home/led/control/set", topic_len) == 0 &&
+             topic_len == strlen("esp32_vuVanNGhia/home/led/control/set"))
+    {
+        handle_led_manual_control(data, data_len);
     }
 }
 // static void log_error_if_nonzero(const char *message, int error_code)
@@ -235,7 +330,7 @@ void mqtt_app_start(void)
 {
     esp_mqtt_client_config_t mqtt_cfg = {
         .broker.address.uri = CONFIG_BROKER_URL,
-          .session.keepalive = 30,
+        .session.keepalive = 30,
         .session.last_will = {
             .topic = "esp32_vuVanNGhia/home/status",
             .msg = "{\"status\":\"offline\"}",

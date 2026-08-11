@@ -61,5 +61,6 @@ typedef struct {
     bool led_state;
     bool fan_state;
     int fan_speed;
+    bool led_auto_mode;  // true = Auto (motion sensor), false = Manual (dashboard)
 } equipment_status_t;
 extern equipment_status_t s_equipment_status;

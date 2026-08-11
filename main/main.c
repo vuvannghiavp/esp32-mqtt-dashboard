@@ -161,6 +161,22 @@ void motion_read_task(void *pvParameters)
         {
             last_motion = s_sensor_data.motion_detected;
             publish_motion_data(client, s_sensor_data.motion_detected);
+
+            // AUTO MODE: Điều khiển đèn tự động theo cảm biến chuyển động
+            if (s_equipment_status.led_auto_mode)
+            {
+                gpio_set_level(RELAY1_GPIO, s_sensor_data.motion_detected ? 1 : 0);
+                s_equipment_status.led_state = s_sensor_data.motion_detected;
+                
+                ESP_LOGI(TAG, "[LED AUTO] Motion %s -> LED %s", 
+                    s_sensor_data.motion_detected ? "Detected" : "Not Detected",
+                    s_sensor_data.motion_detected ? "ON" : "OFF");
+                
+                // Publish LED status khi auto mode thay đổi
+                char payload[100];
+                snprintf(payload, sizeof(payload), "{\"mode\":\"auto\",\"state\":%d}", s_sensor_data.motion_detected);
+                esp_mqtt_client_publish(client, "esp32_vuVanNGhia/home/led/status", payload, 0, 1, 1);
+            }
         }
         vTaskDelay(pdMS_TO_TICKS(100));
     }

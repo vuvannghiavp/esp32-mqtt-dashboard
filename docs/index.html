@@ -244,6 +244,23 @@
                             </label>
                         </div>
 
+                        <!-- LED Mode Switch: Auto/Manual -->
+                        <div class="glass-card p-4 rounded-xl flex items-center justify-between">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-lg bg-slate-800 flex items-center justify-center text-slate-400 transition-all duration-300">
+                                    <i class="fa-solid fa-gear text-lg"></i>
+                                </div>
+                                <div>
+                                    <p class="text-sm font-medium text-white">Chế độ Đèn</p>
+                                    <p id="ledModeStatusText" class="text-xs text-slate-400">Chế độ: MANUAL</p>
+                                </div>
+                            </div>
+                            <label class="relative inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="ledModeToggle" class="sr-only peer" onchange="toggleLedMode(this.checked)">
+                                <div class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
+                            </label>
+                        </div>
+
                         <!-- Fan Speed Slider -->
                         <div class="glass-card p-4 rounded-xl space-y-2">
                             <div class="flex justify-between items-center">
@@ -500,6 +517,8 @@
             topics: {
                 // Publish from Web -> ESP32
                 controlLed: 'esp32_vuVanNGhia/home/led/set',
+                controlLedMode: 'esp32_vuVanNGhia/home/led/mode/set',
+                controlLedManual: 'esp32_vuVanNGhia/home/led/control/set',
                 controlFan: 'esp32_vuVanNGhia/home/fan/set',
                 controlFanSpeed: 'esp32_vuVanNGhia/home/fan/speed/set',
                 configTimer: 'esp32_vuVanNGhia/home/config/timer',
@@ -509,7 +528,9 @@
                 sensorLux: 'esp32_vuVanNGhia/home/sensors/lux',
                 sensorMotion: 'esp32_vuVanNGhia/home/sensors/motion',
                 espStatus: 'esp32_vuVanNGhia/home/status',
-                deviceFeedback: 'esp32_vuVanNGhia/home/feedback'
+                deviceFeedback: 'esp32_vuVanNGhia/home/feedback',
+                ledModeStatus: 'esp32_vuVanNGhia/home/led/mode/status',
+                ledControlStatus: 'esp32_vuVanNGhia/home/led/control/status'
             }
         };
 
@@ -589,7 +610,9 @@
                 MQTT_CONFIG.topics.sensorLux,
                 MQTT_CONFIG.topics.sensorMotion,
                 MQTT_CONFIG.topics.espStatus,
-                MQTT_CONFIG.topics.deviceFeedback
+                MQTT_CONFIG.topics.deviceFeedback,
+                MQTT_CONFIG.topics.ledModeStatus,
+                MQTT_CONFIG.topics.ledControlStatus
             ];
 
             topicsToSub.forEach(topic => {
@@ -658,6 +681,23 @@
                     }
                 }
 
+                // 6. LED Mode Status (Auto/Manual)
+                else if (topic === MQTT_CONFIG.topics.ledModeStatus) {
+                    const isAutoMode = json.mode === 'auto';
+                    document.getElementById('ledModeToggle').checked = isAutoMode;
+                    updateLedModeUI(isAutoMode);
+                    logMQTT(`📍 LED Mode: ${isAutoMode ? 'AUTO (Cảm biến)' : 'MANUAL (Dashboard)'}`);
+                }
+
+                // 7. LED Control Status (Manual control feedback)
+                else if (topic === MQTT_CONFIG.topics.ledControlStatus) {
+                    if (!json.auto_mode) {
+                        document.getElementById('ledToggle').checked = json.state;
+                        updateLedVisuals(json.state);
+                        logMQTT(`💡 LED Manual Control: ${json.state ? 'BẬT' : 'TẮT'}`);
+                    }
+                }
+
             } catch (err) {
                 logMQTT(`❌ Lỗi xử lý payload: ${err.message}`);
             }
@@ -673,22 +713,62 @@
             let topic = '';
             
             if (device === 'led') {
-                topic = MQTT_CONFIG.topics.controlLed;
+                // Kiểm tra nếu ở chế độ AUTO thì không cho bật/tắt
+                if (document.getElementById('ledModeToggle').checked) {
+                    logMQTT('⚠️ LED đang ở chế độ AUTO, không thể điều khiển thủ công!');
+                    document.getElementById('ledToggle').checked = !isChecked; // Hoàn tác toggle
+                    return;
+                }
+                topic = MQTT_CONFIG.topics.controlLedManual;
                 updateLedVisuals(isChecked);
             } else if (device === 'fan') {
                 topic = MQTT_CONFIG.topics.controlFan;
                 updateFanVisuals(isChecked);
             }
 
-            // Publish Plain Text hoặc JSON ngắn cho ESP32 dễ parse
+            // Publish JSON
             const payload = JSON.stringify({
-                device: device,
-                state: state,
-                timestamp: Date.now()
+                state: isChecked
             });
 
             publishMQTT(topic, payload);
         }
+
+        function toggleLedMode(isAutoMode) {
+            const mode = isAutoMode ? 'auto' : 'manual';
+            const payload = JSON.stringify({
+                mode: mode
+            });
+            
+            publishMQTT(MQTT_CONFIG.topics.controlLedMode, payload);
+            updateLedModeUI(isAutoMode);
+            logMQTT(`⚙️ Chuyển LED sang chế độ: ${isAutoMode ? 'AUTO (Cảm biến chuyển động)' : 'MANUAL (Điều khiển từ Dashboard)'}`);
+        }
+
+        function updateLedModeUI(isAutoMode) {
+            const statusText = document.getElementById('ledModeStatusText');
+            if (isAutoMode) {
+                statusText.textContent = 'Chế độ: AUTO (Cảm biến)';
+                statusText.classList.add('text-amber-400');
+                statusText.classList.remove('text-slate-400');
+            } else {
+                statusText.textContent = 'Chế độ: MANUAL (Dashboard)';
+                statusText.classList.remove('text-amber-400');
+                statusText.classList.add('text-slate-400');
+            }
+            
+            // Nếu ở chế độ AUTO, vô hiệu hóa toggle LED
+            const ledToggle = document.getElementById('ledToggle');
+            ledToggle.disabled = isAutoMode;
+            if (isAutoMode) {
+                document.getElementById('ledToggle').parentElement.style.opacity = '0.5';
+                document.getElementById('ledToggle').parentElement.style.pointerEvents = 'none';
+            } else {
+                document.getElementById('ledToggle').parentElement.style.opacity = '1';
+                document.getElementById('ledToggle').parentElement.style.pointerEvents = 'auto';
+            }
+        }
+
 
         function sendFanSpeed(value) {
             document.getElementById('fanSpeedVal').innerText = `${value} %`;
