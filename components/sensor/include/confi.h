@@ -3,23 +3,22 @@
 #include "driver/ledc.h"
 #include "sr522.h"
 #include "zh_bh1750.h"
-// DHT22
+// DHT22-DATA_GPIO5
 
 #define DHT_OK 0
 #define DHT_CHECKSUM_ERROR -1
 #define DHT_TIMEOUT_ERROR -2
-
+// LED_ FAN GPIO
 #define RELAY1_GPIO        GPIO_NUM_25          // led
 #define RELAY2_GPIO        GPIO_NUM_26            // fan
-#define FAN_PWM_GPIO           GPIO_NUM_27
-
-#define IN1_GPIO   			GPIO_NUM_18
-#define IN2_GPIO   			GPIO_NUM_19
-
+// I2C for BH1750
 #define SDA_GPIO   			GPIO_NUM_21
 #define SCL_GPIO   			GPIO_NUM_22
 
 // PWM for Motor
+#define FAN_PWM_GPIO           GPIO_NUM_27
+#define IN1_GPIO   			GPIO_NUM_18
+#define IN2_GPIO   			GPIO_NUM_19
 
 #define PWM_TIMER          LEDC_TIMER_0
 #define PWM_MODE           LEDC_LOW_SPEED_MODE
