@@ -11,6 +11,8 @@
 #include "lwip/err.h"
 #include "lwip/sys.h"
 #include "stdbool.h"
+#include "time.h"
+#include "esp_sntp.h"
 #include "confi.h"
 #include "sr522.h"
 #include "DHT22.h"
@@ -53,6 +55,35 @@ static void event_handler(void *arg, esp_event_base_t event_base,
         ESP_LOGI(TAG, "got ip: %s", esp_ip);
         s_retry_num = 0;
         xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
+    }
+}
+
+static void initialize_sntp(void)
+{
+    ESP_LOGI(TAG, "[TIME] Khởi tạo đồng bộ thời gian SNTP");
+    esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
+    esp_sntp_setservername(0, "pool.ntp.org");
+    esp_sntp_init();
+
+    setenv("TZ", "CST-7", 1);
+    tzset();
+
+    int retry = 0;
+    while (esp_sntp_get_sync_status() == SNTP_SYNC_STATUS_RESET && retry < 30)
+    {
+        vTaskDelay(pdMS_TO_TICKS(500));
+        retry++;
+    }
+
+    if (esp_sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED)
+    {
+        time_t now = 0;
+        time(&now);
+        ESP_LOGI(TAG, "[TIME] Đồng bộ thời gian thành công: %ld", (long)now);
+    }
+    else
+    {
+        ESP_LOGW(TAG, "[TIME] Đồng bộ thời gian chưa hoàn tất, timer sẽ chờ thời gian thực");
     }
 }
 
@@ -167,12 +198,14 @@ void motion_read_task(void *pvParameters)
             {
                 gpio_set_level(RELAY1_GPIO, s_sensor_data.motion_detected ? 1 : 0);
                 s_equipment_status.led_state = s_sensor_data.motion_detected;
-                
-                ESP_LOGI(TAG, "[LED AUTO] Motion %s -> LED %s", 
+
+                ESP_LOGI(TAG, "[LED AUTO] Motion %s -> LED %s",
                     s_sensor_data.motion_detected ? "Detected" : "Not Detected",
                     s_sensor_data.motion_detected ? "ON" : "OFF");
-                
-                // Publish LED status khi auto mode thay đổi
+
+                // Publish LED feedback cho nút UI và trạng thái auto mode
+                publish_feedback(client, "led", s_sensor_data.motion_detected ? "ON" : "OFF");
+
                 char payload[100];
                 snprintf(payload, sizeof(payload), "{\"mode\":\"auto\",\"state\":%d}", s_sensor_data.motion_detected);
                 esp_mqtt_client_publish(client, "esp32_vuVanNGhia/home/led/status", payload, 0, 1, 1);
@@ -202,6 +235,7 @@ void app_main(void)
 
     ESP_LOGI(TAG, "ESP_WIFI_MODE_STA");
     wifi_init_sta();
+    initialize_sntp();
     mqtt_app_start();
 
     xTaskCreate(

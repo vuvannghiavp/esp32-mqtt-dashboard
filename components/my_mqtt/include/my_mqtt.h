@@ -9,3 +9,4 @@ void check_timer_task(void *pvParameters);
 void publish_motion_data(esp_mqtt_client_handle_t client, uint8_t motion_detected);
 void publish_dht22_data(esp_mqtt_client_handle_t client, float temp, float humidity);
 void publish_lux_data(esp_mqtt_client_handle_t client,float lux);
+void publish_feedback(esp_mqtt_client_handle_t client, const char *device, const char *state);

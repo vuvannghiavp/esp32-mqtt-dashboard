@@ -58,6 +58,29 @@ static bool parse_on_off_state(const cJSON *state_item)
     return false;
 }
 
+static void apply_fan_state(bool fan_on, int speed_percent)
+{
+    if (speed_percent < 0)
+    {
+        speed_percent = fan_on ? 100 : 0;
+    }
+    if (speed_percent > 100)
+    {
+        speed_percent = 100;
+    }
+    if (speed_percent < 0)
+    {
+        speed_percent = 0;
+    }
+
+    int pwm_value = fan_on ? (speed_percent * 255) / 100 : 0;
+    gpio_set_level(RELAY2_GPIO, fan_on ? 1 : 0);
+    ledc_set_duty(PWM_MODE, PWM_CHANNEL, pwm_value);
+    ledc_update_duty(PWM_MODE, PWM_CHANNEL);
+    s_equipment_status.fan_state = fan_on;
+    s_equipment_status.fan_speed = fan_on ? speed_percent : 0;
+}
+
 // HÀM 1: Xử lý tốc độ quạt (fan/speed/set)
 // ================================================================
 static void handle_fan_speed(const char *data, int data_len)
@@ -96,8 +119,7 @@ static void handle_fan_speed(const char *data, int data_len)
     if (pwm_value < 0)
         pwm_value = 0;
 
-    ledc_set_duty(PWM_MODE, PWM_CHANNEL, pwm_value);
-    ledc_update_duty(PWM_MODE, PWM_CHANNEL);
+    apply_fan_state(pwm_value > 0, speed_percent >= 0 ? speed_percent : (pwm_value * 100 / 255));
 
     ESP_LOGI(TAG, "[FAN] Đã set tốc độ: %d%% (PWM=%d)", speed_percent, pwm_value);
 
@@ -129,6 +151,7 @@ static void handle_timer_config(const char *data, int data_len)
     cJSON *time_item = cJSON_GetObjectItem(root, "time");
     cJSON *action_item = cJSON_GetObjectItem(root, "action");
     cJSON *repeat_item = cJSON_GetObjectItem(root, "repeat");
+    cJSON *enabled_item = cJSON_GetObjectItem(root, "enabled");
 
     if (!cJSON_IsString(target_item) || !cJSON_IsString(time_item) || !cJSON_IsString(action_item))
     {
@@ -149,13 +172,14 @@ static void handle_timer_config(const char *data, int data_len)
     t->target[sizeof(t->target) - 1] = '\0';
     strncpy(t->time, time_item->valuestring, sizeof(t->time) - 1);
     t->time[sizeof(t->time) - 1] = '\0';
-    t->action_on = (strcmp(action_item->valuestring, "ON") == 0);
+    t->action_on = (strcmp(action_item->valuestring, "ON") == 0 || strcmp(action_item->valuestring, "on") == 0);
     t->repeat_daily = cJSON_IsTrue(repeat_item);
-    t->active = true;
+    t->active = (enabled_item == NULL || cJSON_IsTrue(enabled_item) || cJSON_IsBool(enabled_item) == false);
 
-    ESP_LOGI(TAG, "[TIMER] Đã lưu lịch: %s -> %s lúc %s (lặp lại: %s)",
+    ESP_LOGI(TAG, "[TIMER] Đã lưu lịch: %s -> %s lúc %s (lặp lại: %s, active: %s)",
              t->target, t->action_on ? "ON" : "OFF", t->time,
-             t->repeat_daily ? "YES" : "NO");
+             t->repeat_daily ? "YES" : "NO",
+             t->active ? "YES" : "NO");
 
     // Xác nhận lại cho dashboard
     cJSON *ack = cJSON_CreateObject();
@@ -395,13 +419,16 @@ void check_timers(const char *current_time_hhmm)
         {
             if (strcmp(s_timers[i].target, "led") == 0)
             {
-                gpio_set_level(RELAY1_GPIO, s_timers[i].action_on ? 1 : 0);
+                bool led_on = s_timers[i].action_on;
+                gpio_set_level(RELAY1_GPIO, led_on ? 1 : 0);
+                s_equipment_status.led_state = led_on;
+                publish_feedback(client, "led", led_on ? "ON" : "OFF");
             }
             else if (strcmp(s_timers[i].target, "fan") == 0)
             {
-                int duty = s_timers[i].action_on ? 255 : 0;
-                ledc_set_duty(PWM_MODE, PWM_CHANNEL, duty);
-                ledc_update_duty(PWM_MODE, PWM_CHANNEL);
+                bool fan_on = s_timers[i].action_on;
+                apply_fan_state(fan_on, fan_on ? 100 : 0);
+                publish_feedback(client, "fan", fan_on ? "ON" : "OFF");
             }
             ESP_LOGI(TAG, "[TIMER] Kích hoạt: %s -> %s",
                      s_timers[i].target, s_timers[i].action_on ? "ON" : "OFF");
@@ -495,8 +522,7 @@ void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event
             {
                 cJSON *state = cJSON_GetObjectItem(root, "state");
                 bool fan_on = parse_on_off_state(state);
-                gpio_set_level(RELAY2_GPIO, fan_on ? 1 : 0);
-                s_equipment_status.fan_state = fan_on;
+                apply_fan_state(fan_on, fan_on ? 100 : 0);
                 strcpy(feedback_device, "fan");
                 strcpy(feedback_state, fan_on ? "ON" : "OFF");
                 ESP_LOGI(TAG, "[FAN SET] Quạt %s", fan_on ? "BẬT" : "TẮT");
