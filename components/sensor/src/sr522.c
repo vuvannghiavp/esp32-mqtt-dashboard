@@ -8,7 +8,7 @@ static const char *TAG = "SR522";
 #define SR522_STARTUP_DELAY_MS 3000
 #define SR522_MOTION_HOLD_MS 5000
 
-static gpio_num_t sr522_gpio = GPIO_NUM_NC;
+//static gpio_num_t sr522_config.gpio = GPIO_NUM_NC;
 static volatile bool motion_detected = false;
 static volatile bool startup_ready = false;
 static volatile TickType_t last_motion_tick = 0;
@@ -40,7 +40,7 @@ static void IRAM_ATTR sr522_isr_handler(void *arg)
         return;
     }
 
-    if (gpio_get_level(sr522_gpio) == 1)
+    if (gpio_get_level(sr522_config.gpio) == 1)
     {
         motion_detected = true;
         last_motion_tick = xTaskGetTickCountFromISR();
@@ -57,10 +57,10 @@ esp_err_t sr522_init(const sr522_config_t *config)
         return ESP_ERR_INVALID_ARG;
     }
 
-    sr522_gpio = config->gpio;
+    sr522_config.gpio = config->gpio;
 
     gpio_config_t io_conf = {
-        .pin_bit_mask = (1ULL << sr522_gpio),
+        .pin_bit_mask = (1ULL << sr522_config.gpio),
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_DISABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
@@ -70,7 +70,7 @@ esp_err_t sr522_init(const sr522_config_t *config)
     esp_err_t ret = gpio_config(&io_conf);
     if (ret != ESP_OK)
     {
-        ESP_LOGE(TAG, "Failed to configure GPIO %d: %s", sr522_gpio, esp_err_to_name(ret));
+        ESP_LOGE(TAG, "Failed to configure GPIO %d: %s", sr522_config.gpio, esp_err_to_name(ret));
         return ret;
     }
 
@@ -81,12 +81,12 @@ esp_err_t sr522_init(const sr522_config_t *config)
         return ret;
     }
 // if it have interupt event, it will call the function sr522_isr_handler
-    ret = gpio_isr_handler_add(sr522_gpio,
+    ret = gpio_isr_handler_add(sr522_config.gpio,
                                sr522_isr_handler,
                                NULL);
     if (ret != ESP_OK)
     {
-        ESP_LOGE(TAG, "Failed to add GPIO ISR for GPIO %d: %s", sr522_gpio, esp_err_to_name(ret));
+        ESP_LOGE(TAG, "Failed to add GPIO ISR for GPIO %d: %s", sr522_config.gpio, esp_err_to_name(ret));
         return ret;
     }
 
@@ -98,13 +98,13 @@ esp_err_t sr522_init(const sr522_config_t *config)
     vTaskDelay(pdMS_TO_TICKS(SR522_STARTUP_DELAY_MS));
 
     startup_ready = true;
-    if (gpio_get_level(sr522_gpio) == 1)
+    if (gpio_get_level(sr522_config.gpio) == 1)
     {
         motion_detected = true;
         last_motion_tick = xTaskGetTickCount();
     }
 
-    ESP_LOGI(TAG, "HC-SR522 initialized on GPIO %d", sr522_gpio);
+    ESP_LOGI(TAG, "HC-SR522 initialized on GPIO %d", sr522_config.gpio);
     return ESP_OK;
 }
 
@@ -113,7 +113,7 @@ esp_err_t sr522_init(const sr522_config_t *config)
  */
 bool sr522_is_motion_detected(void)
 {
-    if (startup_ready && gpio_get_level(sr522_gpio) == 1)
+    if (startup_ready && gpio_get_level(sr522_config.gpio) == 1)
     {
         motion_detected = true;
         last_motion_tick = xTaskGetTickCount();
@@ -137,11 +137,11 @@ void sr522_clear_motion(void)
  */
 void sr522_debug_print_state(void)
 {
-    int level = gpio_get_level(sr522_gpio);
+    int level = gpio_get_level(sr522_config.gpio);
     sr522_refresh_motion_state();
 
     ESP_LOGI(TAG, "SR522 debug -> GPIO:%d level:%d motion:%d startup_ready:%d",
-             sr522_gpio,
+             sr522_config.gpio,
              level,
              motion_detected,
              startup_ready);

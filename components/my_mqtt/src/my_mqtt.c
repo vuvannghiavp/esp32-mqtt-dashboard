@@ -20,6 +20,44 @@ extern int s_timer_count;
 
 esp_mqtt_client_handle_t client = NULL;
 static const char *TAG = "MQTT";
+
+static bool parse_on_off_state(const cJSON *state_item)
+{
+    if (state_item == NULL)
+    {
+        return false;
+    }
+
+    if (cJSON_IsBool(state_item))
+    {
+        return cJSON_IsTrue(state_item);
+    }
+
+    if (cJSON_IsNumber(state_item))
+    {
+        return state_item->valueint != 0;
+    }
+
+    if (cJSON_IsString(state_item) && state_item->valuestring != NULL)
+    {
+        const char *value = state_item->valuestring;
+        if (strcmp(value, "ON") == 0 || strcmp(value, "on") == 0 ||
+            strcmp(value, "true") == 0 || strcmp(value, "TRUE") == 0 ||
+            strcmp(value, "1") == 0)
+        {
+            return true;
+        }
+        if (strcmp(value, "OFF") == 0 || strcmp(value, "off") == 0 ||
+            strcmp(value, "false") == 0 || strcmp(value, "FALSE") == 0 ||
+            strcmp(value, "0") == 0)
+        {
+            return false;
+        }
+    }
+
+    return false;
+}
+
 // HÀM 1: Xử lý tốc độ quạt (fan/speed/set)
 // ================================================================
 static void handle_fan_speed(const char *data, int data_len)
@@ -408,6 +446,8 @@ void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event
         ESP_LOGI(TAG, "MQTT_EVENT_CONNECTED");
         wifi_connected = true;
         esp_mqtt_client_subscribe(client, "esp32_vuVanNGhia/home/led/set", 1);
+        esp_mqtt_client_subscribe(client, "esp32_vuVanNGhia/home/led/control/set", 1);
+        esp_mqtt_client_subscribe(client, "esp32_vuVanNGhia/home/led/mode/set", 1);
         esp_mqtt_client_subscribe(client, "esp32_vuVanNGhia/home/fan/set", 1);
         esp_mqtt_client_subscribe(client, "esp32_vuVanNGhia/home/fan/speed/set", 1);
         esp_mqtt_client_subscribe(client, "esp32_vuVanNGhia/home/config/timer", 1);
@@ -443,35 +483,23 @@ void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event
             if (strcmp(topic, "esp32_vuVanNGhia/home/led/set") == 0)
             {
                 cJSON *state = cJSON_GetObjectItem(root, "state");
-                if (cJSON_IsString(state) && strcmp(state->valuestring, "ON") == 0)
-                {
-                    gpio_set_level(RELAY1_GPIO, 1);
-                    strcpy(feedback_device, "led");
-                    strcpy(feedback_state, "ON");
-                }
-                else
-                {
-                    gpio_set_level(RELAY1_GPIO, 0);
-                    strcpy(feedback_device, "led");
-                    strcpy(feedback_state, "OFF");
-                }
+                bool led_on = parse_on_off_state(state);
+                gpio_set_level(RELAY1_GPIO, led_on ? 1 : 0);
+                s_equipment_status.led_state = led_on;
+                strcpy(feedback_device, "led");
+                strcpy(feedback_state, led_on ? "ON" : "OFF");
+                ESP_LOGI(TAG, "[LED SET] Đèn %s", led_on ? "BẬT" : "TẮT");
                 published_feedback = true;
             }
             else if (strcmp(topic, "esp32_vuVanNGhia/home/fan/set") == 0)
             {
                 cJSON *state = cJSON_GetObjectItem(root, "state");
-                if (cJSON_IsString(state) && strcmp(state->valuestring, "ON") == 0)
-                {
-                    gpio_set_level(RELAY2_GPIO, 1);
-                    strcpy(feedback_device, "fan");
-                    strcpy(feedback_state, "ON");
-                }
-                else
-                {
-                    gpio_set_level(RELAY2_GPIO, 0);
-                    strcpy(feedback_device, "fan");
-                    strcpy(feedback_state, "OFF");
-                }
+                bool fan_on = parse_on_off_state(state);
+                gpio_set_level(RELAY2_GPIO, fan_on ? 1 : 0);
+                s_equipment_status.fan_state = fan_on;
+                strcpy(feedback_device, "fan");
+                strcpy(feedback_state, fan_on ? "ON" : "OFF");
+                ESP_LOGI(TAG, "[FAN SET] Quạt %s", fan_on ? "BẬT" : "TẮT");
                 published_feedback = true;
             }
             else

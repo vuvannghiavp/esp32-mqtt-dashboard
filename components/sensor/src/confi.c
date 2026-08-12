@@ -12,7 +12,7 @@ sensor_data_t s_sensor_data;
 equipment_status_t s_equipment_status;
 int s_timer_count = 0;
 sr522_config_t sr522_config = {
-    .gpio = GPIO_NUM_4, // GPIO4
+    .gpio = GPIO_SR522, // GPIO4
 };
 void hardware_init(void)
 {

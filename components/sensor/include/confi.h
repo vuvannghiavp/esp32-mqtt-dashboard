@@ -30,6 +30,7 @@
 
 #define MAX_TIMERS 10
 // SR522
+#define GPIO_SR522          GPIO_NUM_4
 extern sr522_config_t sr522_config;
 // ==== Struct lưu lịch hẹn giờ ====
 
