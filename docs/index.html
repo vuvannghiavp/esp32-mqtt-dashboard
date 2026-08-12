@@ -529,6 +529,7 @@
                 sensorMotion: 'esp32_vuVanNGhia/home/sensors/motion',
                 espStatus: 'esp32_vuVanNGhia/home/status',
                 deviceFeedback: 'esp32_vuVanNGhia/home/feedback',
+                fanStatus: 'esp32_vuVanNGhia/home/fan/status',
                 ledModeStatus: 'esp32_vuVanNGhia/home/led/mode/status',
                 ledControlStatus: 'esp32_vuVanNGhia/home/led/control/status'
             }
@@ -611,6 +612,7 @@
                 MQTT_CONFIG.topics.sensorMotion,
                 MQTT_CONFIG.topics.espStatus,
                 MQTT_CONFIG.topics.deviceFeedback,
+                MQTT_CONFIG.topics.fanStatus,
                 MQTT_CONFIG.topics.ledModeStatus,
                 MQTT_CONFIG.topics.ledControlStatus
             ];
@@ -681,6 +683,19 @@
                     }
                 }
 
+                // 5b. Fan speed/status sync from ESP32
+                else if (topic === MQTT_CONFIG.topics.fanStatus) {
+                    const speed = Number(json.speed ?? Math.round(((json.pwm ?? 0) / 255) * 100));
+                    const isOn = json.state === 'ON' || json.state === 'on' || speed > 0;
+                    const fanSlider = document.getElementById('fanSpeedSlider');
+                    const fanToggle = document.getElementById('fanToggle');
+                    const safeSpeed = Number.isFinite(speed) ? Math.max(0, Math.min(100, speed)) : 0;
+                    fanSlider.value = safeSpeed;
+                    fanToggle.checked = isOn;
+                    updateFanVisuals(isOn);
+                    document.getElementById('fanSpeedVal').innerText = `${safeSpeed} %`;
+                }
+
                 // 6. LED Mode Status (Auto/Manual)
                 else if (topic === MQTT_CONFIG.topics.ledModeStatus) {
                     const isAutoMode = json.mode === 'auto';
@@ -723,6 +738,15 @@
                 updateLedVisuals(isChecked);
             } else if (device === 'fan') {
                 topic = MQTT_CONFIG.topics.controlFan;
+                const fanSlider = document.getElementById('fanSpeedSlider');
+                if (isChecked) {
+                    const currentValue = Number(fanSlider.value) || 100;
+                    fanSlider.value = currentValue;
+                    document.getElementById('fanSpeedVal').innerText = `${currentValue} %`;
+                } else {
+                    fanSlider.value = 0;
+                    document.getElementById('fanSpeedVal').innerText = '0 %';
+                }
                 updateFanVisuals(isChecked);
             }
 
@@ -771,10 +795,20 @@
 
 
         function sendFanSpeed(value) {
-            document.getElementById('fanSpeedVal').innerText = `${value} %`;
+            const fanToggle = document.getElementById('fanToggle');
+            const speed = Math.max(0, Math.min(100, parseInt(value, 10) || 0));
+
+            if (!fanToggle.checked && speed > 0) {
+                document.getElementById('fanSpeedSlider').value = 0;
+                document.getElementById('fanSpeedVal').innerText = '0 %';
+                logMQTT('⚠️ Quạt đang tắt, slider PWM không được bật quạt khi chưa nhấn nút ON.');
+                return;
+            }
+
+            document.getElementById('fanSpeedVal').innerText = `${speed} %`;
             const payload = JSON.stringify({
-                speed: parseInt(value),
-                pwm: Math.round((parseInt(value) / 100) * 255)
+                speed: speed,
+                pwm: Math.round((speed / 100) * 255)
             });
             publishMQTT(MQTT_CONFIG.topics.controlFanSpeed, payload);
         }

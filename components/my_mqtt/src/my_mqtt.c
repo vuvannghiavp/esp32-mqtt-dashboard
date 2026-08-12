@@ -58,6 +58,33 @@ static bool parse_on_off_state(const cJSON *state_item)
     return false;
 }
 
+static void publish_fan_status(bool fan_on, int speed_percent)
+{
+    if (speed_percent < 0)
+    {
+        speed_percent = fan_on ? 100 : 0;
+    }
+    if (speed_percent > 100)
+    {
+        speed_percent = 100;
+    }
+    if (speed_percent < 0)
+    {
+        speed_percent = 0;
+    }
+
+    int pwm_value = fan_on ? (speed_percent * 255) / 100 : 0;
+    cJSON *root = cJSON_CreateObject();
+    cJSON_AddStringToObject(root, "device", "fan");
+    cJSON_AddStringToObject(root, "state", fan_on ? "ON" : "OFF");
+    cJSON_AddNumberToObject(root, "speed", speed_percent);
+    cJSON_AddNumberToObject(root, "pwm", pwm_value);
+    char *payload = cJSON_PrintUnformatted(root);
+    esp_mqtt_client_publish(client, "esp32_vuVanNGhia/home/fan/status", payload, 0, 1, 1);
+    cJSON_Delete(root);
+    free(payload);
+}
+
 static void apply_fan_state(bool fan_on, int speed_percent)
 {
     if (speed_percent < 0)
@@ -79,6 +106,7 @@ static void apply_fan_state(bool fan_on, int speed_percent)
     ledc_update_duty(PWM_MODE, PWM_CHANNEL);
     s_equipment_status.fan_state = fan_on;
     s_equipment_status.fan_speed = fan_on ? speed_percent : 0;
+    publish_fan_status(fan_on, speed_percent);
 }
 
 // HÀM 1: Xử lý tốc độ quạt (fan/speed/set)
@@ -105,7 +133,6 @@ static void handle_fan_speed(const char *data, int data_len)
     int speed_percent = cJSON_IsNumber(speed_item) ? speed_item->valueint : -1;
     int pwm_value = cJSON_IsNumber(pwm_item) ? pwm_item->valueint : -1;
 
-    // Nếu không có pwm sẵn, tự tính từ speed(%)
     if (pwm_value < 0 && speed_percent >= 0)
     {
         if (speed_percent > 100)
@@ -119,14 +146,22 @@ static void handle_fan_speed(const char *data, int data_len)
     if (pwm_value < 0)
         pwm_value = 0;
 
+    if (!s_equipment_status.fan_state && speed_percent > 0)
+    {
+        ESP_LOGW(TAG, "[FAN] Slider PWM bị bỏ qua vì quạt đang OFF. Dùng nút bật quạt trước khi chỉnh tốc độ.");
+        speed_percent = 0;
+        pwm_value = 0;
+    }
+
     apply_fan_state(pwm_value > 0, speed_percent >= 0 ? speed_percent : (pwm_value * 100 / 255));
 
     ESP_LOGI(TAG, "[FAN] Đã set tốc độ: %d%% (PWM=%d)", speed_percent, pwm_value);
 
-    // Phản hồi trạng thái lại cho dashboard
     cJSON *status = cJSON_CreateObject();
     cJSON_AddNumberToObject(status, "speed", speed_percent);
     cJSON_AddNumberToObject(status, "pwm", pwm_value);
+    cJSON_AddStringToObject(status, "state", s_equipment_status.fan_state ? "ON" : "OFF");
+    cJSON_AddStringToObject(status, "device", "fan");
     char *out = cJSON_PrintUnformatted(status);
     esp_mqtt_client_publish(client, "esp32_vuVanNGhia/home/fan/status", out, 0, 1, 1);
     cJSON_free(out);
