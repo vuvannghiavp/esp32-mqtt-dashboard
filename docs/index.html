@@ -530,6 +530,7 @@
                 espStatus: 'esp32_vuVanNGhia/home/status',
                 deviceFeedback: 'esp32_vuVanNGhia/home/feedback',
                 fanStatus: 'esp32_vuVanNGhia/home/fan/status',
+                fanSpeedStatus: 'esp32_vuVanNGhia/home/fan/speed/status',
                 ledModeStatus: 'esp32_vuVanNGhia/home/led/mode/status',
                 ledControlStatus: 'esp32_vuVanNGhia/home/led/control/status'
             }
@@ -613,6 +614,7 @@
                 MQTT_CONFIG.topics.espStatus,
                 MQTT_CONFIG.topics.deviceFeedback,
                 MQTT_CONFIG.topics.fanStatus,
+                MQTT_CONFIG.topics.fanSpeedStatus,
                 MQTT_CONFIG.topics.ledModeStatus,
                 MQTT_CONFIG.topics.ledControlStatus
             ];
@@ -693,6 +695,18 @@
                     fanSlider.value = safeSpeed;
                     fanToggle.checked = isOn;
                     updateFanVisuals(isOn);
+                    document.getElementById('fanSpeedVal').innerText = `${safeSpeed} %`;
+                }
+
+                // 5c. Fan speed raw status (used for slider sync when the app expects plain numbers)
+                else if (topic === MQTT_CONFIG.topics.fanSpeedStatus) {
+                    const speed = Number(payloadStr);
+                    const safeSpeed = Number.isFinite(speed) ? Math.max(0, Math.min(100, speed)) : 0;
+                    const fanSlider = document.getElementById('fanSpeedSlider');
+                    const fanToggle = document.getElementById('fanToggle');
+                    fanSlider.value = safeSpeed;
+                    fanToggle.checked = safeSpeed > 0;
+                    updateFanVisuals(safeSpeed > 0);
                     document.getElementById('fanSpeedVal').innerText = `${safeSpeed} %`;
                 }
 

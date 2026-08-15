@@ -20,7 +20,13 @@ extern int s_timer_count;
 
 esp_mqtt_client_handle_t client = NULL;
 static const char *TAG = "MQTT";
+static char *s_mqtt_payload_buf = NULL;
+static size_t s_mqtt_payload_expected_len = 0;
+static char s_mqtt_topic_buf[64] = {0};
 
+static void apply_fan_state(bool fan_on, int speed_percent);
+void mqtt_data_dispatch(const char *topic, int topic_len,
+                        const char *data, int data_len);
 static bool parse_on_off_state(const cJSON *state_item)
 {
     if (state_item == NULL)
@@ -58,6 +64,62 @@ static bool parse_on_off_state(const cJSON *state_item)
     return false;
 }
 
+static void handle_fan_speed(const char *data, int data_len);
+static void publish_fan_speed_raw(int speed_percent);
+
+static void handle_complete_mqtt_message(const char *topic, const char *payload, size_t payload_len)
+{
+    if (strcmp(topic, "esp32_vuVanNGhia/home/fan/speed/set") == 0)
+    {
+        handle_fan_speed(payload, (int)payload_len);
+        return;
+    }
+
+    cJSON *root = cJSON_ParseWithLength(payload, payload_len);
+    if (root == NULL)
+    {
+        ESP_LOGW(TAG, "MQTT_EVENT_DATA payload parse failed");
+        return;
+    }
+
+    bool published_feedback = false;
+    char feedback_device[16] = {0};
+    char feedback_state[16] = {0};
+
+    if (strcmp(topic, "esp32_vuVanNGhia/home/led/set") == 0)
+    {
+        cJSON *state = cJSON_GetObjectItem(root, "state");
+        bool led_on = parse_on_off_state(state);
+        gpio_set_level(RELAY1_GPIO, led_on ? 1 : 0);
+        s_equipment_status.led_state = led_on;
+        strcpy(feedback_device, "led");
+        strcpy(feedback_state, led_on ? "ON" : "OFF");
+        ESP_LOGI(TAG, "[LED SET] Đèn %s", led_on ? "BẬT" : "TẮT");
+        published_feedback = true;
+    }
+    else if (strcmp(topic, "esp32_vuVanNGhia/home/fan/set") == 0)
+    {
+        cJSON *state = cJSON_GetObjectItem(root, "state");
+        bool fan_on = parse_on_off_state(state);
+        apply_fan_state(fan_on, fan_on ? 100 : 0);
+        strcpy(feedback_device, "fan");
+        strcpy(feedback_state, fan_on ? "ON" : "OFF");
+        ESP_LOGI(TAG, "[FAN SET] Quạt %s", fan_on ? "BẬT" : "TẮT");
+        published_feedback = true;
+    }
+    else
+    {
+        mqtt_data_dispatch(topic, (int)strlen(topic), payload, (int)payload_len);
+    }
+
+    if (published_feedback)
+    {
+        publish_feedback(client, feedback_device, feedback_state);
+    }
+
+    cJSON_Delete(root);
+}
+
 static void publish_fan_status(bool fan_on, int speed_percent)
 {
     if (speed_percent < 0)
@@ -83,6 +145,24 @@ static void publish_fan_status(bool fan_on, int speed_percent)
     esp_mqtt_client_publish(client, "esp32_vuVanNGhia/home/fan/status", payload, 0, 1, 1);
     cJSON_Delete(root);
     free(payload);
+
+    publish_fan_speed_raw(speed_percent);
+}
+
+static void publish_fan_speed_raw(int speed_percent)
+{
+    if (speed_percent < 0)
+    {
+        speed_percent = 0;
+    }
+    if (speed_percent > 100)
+    {
+        speed_percent = 100;
+    }
+
+    char payload[8];
+    snprintf(payload, sizeof(payload), "%d", speed_percent);
+    esp_mqtt_client_publish(client, "esp32_vuVanNGhia/home/fan/speed/status", payload, 0, 1, 1);
 }
 
 static void apply_fan_state(bool fan_on, int speed_percent)
@@ -114,37 +194,141 @@ static void apply_fan_state(bool fan_on, int speed_percent)
 static void handle_fan_speed(const char *data, int data_len)
 {
     cJSON *root = cJSON_ParseWithLength(data, data_len);
+    int speed_percent = -1;
+    int pwm_value = -1;
+
     if (root == NULL)
     {
-        ESP_LOGE(TAG, "[FAN] Lỗi parse JSON");
-        return;
+        // Some MQTT panel widgets may publish a raw number or a quoted string
+        // instead of a JSON object. Accept those forms as a fallback.
+        char raw_payload[16] = {0};
+        int copy_len = data_len < (int)sizeof(raw_payload) - 1 ? data_len : (int)sizeof(raw_payload) - 1;
+        memcpy(raw_payload, data, copy_len);
+        raw_payload[copy_len] = '\0';
+
+        if (raw_payload[0] == '"' && copy_len >= 2)
+        {
+            memmove(raw_payload, raw_payload + 1, copy_len - 2);
+            raw_payload[copy_len - 2] = '\0';
+        }
+
+        char *endptr = NULL;
+        long raw_value = strtol(raw_payload, &endptr, 10);
+        if (endptr != raw_payload && raw_value >= 0)
+        {
+            if (raw_value <= 100)
+            {
+                speed_percent = (int)raw_value;
+                pwm_value = (speed_percent * 255) / 100;
+            }
+            else if (raw_value <= 255)
+            {
+                pwm_value = (int)raw_value;
+                speed_percent = (pwm_value * 100) / 255;
+            }
+            else
+            {
+                pwm_value = 255;
+                speed_percent = 100;
+            }
+        }
+
+        if (speed_percent < 0 && pwm_value < 0)
+        {
+            ESP_LOGE(TAG, "[FAN] Lỗi parse JSON hoặc payload số thô không hợp lệ: %s", raw_payload);
+            return;
+        }
     }
-
-    cJSON *speed_item = cJSON_GetObjectItem(root, "speed");
-    cJSON *pwm_item = cJSON_GetObjectItem(root, "pwm");
-
-    if (!cJSON_IsNumber(speed_item) && !cJSON_IsNumber(pwm_item))
+    else if (cJSON_IsNumber(root))
     {
-        ESP_LOGW(TAG, "[FAN] Payload thiếu 'speed' hoặc 'pwm'");
-        cJSON_Delete(root);
-        return;
-    }
-
-    int speed_percent = cJSON_IsNumber(speed_item) ? speed_item->valueint : -1;
-    int pwm_value = cJSON_IsNumber(pwm_item) ? pwm_item->valueint : -1;
-
-    if (pwm_value < 0 && speed_percent >= 0)
-    {
+        speed_percent = root->valueint;
         if (speed_percent > 100)
+        {
             speed_percent = 100;
+        }
         if (speed_percent < 0)
+        {
             speed_percent = 0;
+        }
         pwm_value = (speed_percent * 255) / 100;
     }
-    if (pwm_value > 255)
-        pwm_value = 255;
-    if (pwm_value < 0)
-        pwm_value = 0;
+    else if (cJSON_IsString(root) && root->valuestring != NULL)
+    {
+        char *endptr = NULL;
+        long raw_value = strtol(root->valuestring, &endptr, 10);
+        if (endptr != root->valuestring && raw_value >= 0)
+        {
+            if (raw_value <= 100)
+            {
+                speed_percent = (int)raw_value;
+                pwm_value = (speed_percent * 255) / 100;
+            }
+            else if (raw_value <= 255)
+            {
+                pwm_value = (int)raw_value;
+                speed_percent = (pwm_value * 100) / 255;
+            }
+            else
+            {
+                pwm_value = 255;
+                speed_percent = 100;
+            }
+        }
+        else
+        {
+            ESP_LOGE(TAG, "[FAN] Payload chuỗi không hợp lệ: %s", root->valuestring);
+            cJSON_Delete(root);
+            return;
+        }
+    }
+    else
+    {
+        cJSON *speed_item = cJSON_GetObjectItem(root, "speed");
+        cJSON *pwm_item = cJSON_GetObjectItem(root, "pwm");
+
+        bool speed_is_number = cJSON_IsNumber(speed_item);
+        bool speed_is_string = cJSON_IsString(speed_item) && speed_item->valuestring != NULL;
+        bool pwm_is_number = cJSON_IsNumber(pwm_item);
+        bool pwm_is_string = cJSON_IsString(pwm_item) && pwm_item->valuestring != NULL;
+
+        if (!speed_is_number && !speed_is_string && !pwm_is_number && !pwm_is_string)
+        {
+            ESP_LOGW(TAG, "[FAN] Payload thiếu 'speed' hoặc 'pwm'");
+            cJSON_Delete(root);
+            return;
+        }
+
+        if (speed_is_number)
+        {
+            speed_percent = speed_item->valueint;
+        }
+        else if (speed_is_string)
+        {
+            speed_percent = atoi(speed_item->valuestring);
+        }
+
+        if (pwm_is_number)
+        {
+            pwm_value = pwm_item->valueint;
+        }
+        else if (pwm_is_string)
+        {
+            pwm_value = atoi(pwm_item->valuestring);
+        }
+
+        if (pwm_value < 0 && speed_percent >= 0)
+        {
+            if (speed_percent > 100)
+                speed_percent = 100;
+            if (speed_percent < 0)
+                speed_percent = 0;
+            pwm_value = (speed_percent * 255) / 100;
+        }
+        if (pwm_value > 255)
+            pwm_value = 255;
+        if (pwm_value < 0)
+            pwm_value = 0;
+    }
 
     if (!s_equipment_status.fan_state && speed_percent > 0)
     {
@@ -514,10 +698,15 @@ void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event
         esp_mqtt_client_subscribe(client, "esp32_vuVanNGhia/home/fan/speed/set", 1);
         esp_mqtt_client_subscribe(client, "esp32_vuVanNGhia/home/config/timer", 1);
         publish_status();
+        publish_fan_status(s_equipment_status.fan_state, s_equipment_status.fan_speed);
         break;
         // Biết MQTT đã mất kết nối, ghi log/xử lý trạng thái
     case MQTT_EVENT_DISCONNECTED:
         wifi_connected = false;
+        free(s_mqtt_payload_buf);
+        s_mqtt_payload_buf = NULL;
+        s_mqtt_payload_expected_len = 0;
+        s_mqtt_topic_buf[0] = '\0';
         ESP_LOGI(TAG, "MQTT_EVENT_DISCONNECTED");
         break;
         // Kiểm tra việc subscribe đã thành công
@@ -532,57 +721,49 @@ void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event
     case MQTT_EVENT_DATA:
     {
         ESP_LOGI(TAG, "MQTT_EVENT_DATA");
-        char topic[64] = {0};
-        snprintf(topic, sizeof(topic), "%.*s", event->topic_len, event->topic);
-
-        cJSON *root = cJSON_ParseWithLength(event->data, event->data_len);
-        if (root != NULL)
+        if (event->current_data_offset == 0)
         {
-            bool published_feedback = false;
-            char feedback_device[16] = {0};
-            char feedback_state[16] = {0};
-
-            if (strcmp(topic, "esp32_vuVanNGhia/home/led/set") == 0)
+            free(s_mqtt_payload_buf);
+            s_mqtt_payload_buf = NULL;
+            s_mqtt_payload_expected_len = (size_t)event->total_data_len;
+            memset(s_mqtt_topic_buf, 0, sizeof(s_mqtt_topic_buf));
+            snprintf(s_mqtt_topic_buf, sizeof(s_mqtt_topic_buf), "%.*s", event->topic_len, event->topic);
+            s_mqtt_payload_buf = malloc(s_mqtt_payload_expected_len + 1);
+            if (s_mqtt_payload_buf == NULL)
             {
-                cJSON *state = cJSON_GetObjectItem(root, "state");
-                bool led_on = parse_on_off_state(state);
-                gpio_set_level(RELAY1_GPIO, led_on ? 1 : 0);
-                s_equipment_status.led_state = led_on;
-                strcpy(feedback_device, "led");
-                strcpy(feedback_state, led_on ? "ON" : "OFF");
-                ESP_LOGI(TAG, "[LED SET] Đèn %s", led_on ? "BẬT" : "TẮT");
-                published_feedback = true;
-            }
-            else if (strcmp(topic, "esp32_vuVanNGhia/home/fan/set") == 0)
-            {
-                cJSON *state = cJSON_GetObjectItem(root, "state");
-                bool fan_on = parse_on_off_state(state);
-                apply_fan_state(fan_on, fan_on ? 100 : 0);
-                strcpy(feedback_device, "fan");
-                strcpy(feedback_state, fan_on ? "ON" : "OFF");
-                ESP_LOGI(TAG, "[FAN SET] Quạt %s", fan_on ? "BẬT" : "TẮT");
-                published_feedback = true;
-            }
-            else
-            {
-                mqtt_data_dispatch(event->topic, event->topic_len,
-                                   event->data, event->data_len);
-            }
-
-            if (published_feedback)
-            {
-                publish_feedback(client, feedback_device, feedback_state);
+                ESP_LOGE(TAG, "MQTT_EVENT_DATA payload malloc failed");
+                break;
             }
         }
-        else
+        else if (s_mqtt_payload_buf == NULL)
         {
-            ESP_LOGW(TAG, "MQTT_EVENT_DATA payload parse failed");
+            ESP_LOGW(TAG, "MQTT_EVENT_DATA received fragmented payload without buffer");
+            break;
         }
 
-        if (root != NULL)
+        if (event->current_data_offset + event->data_len > s_mqtt_payload_expected_len)
         {
-            cJSON_Delete(root);
+            ESP_LOGW(TAG, "MQTT_EVENT_DATA fragment overflow");
+            free(s_mqtt_payload_buf);
+            s_mqtt_payload_buf = NULL;
+            s_mqtt_payload_expected_len = 0;
+            break;
         }
+
+        memcpy(s_mqtt_payload_buf + event->current_data_offset, event->data, event->data_len);
+
+        if (event->current_data_offset + event->data_len < s_mqtt_payload_expected_len)
+        {
+            break;
+        }
+
+        s_mqtt_payload_buf[s_mqtt_payload_expected_len] = '\0';
+        handle_complete_mqtt_message(s_mqtt_topic_buf, s_mqtt_payload_buf, s_mqtt_payload_expected_len);
+
+        free(s_mqtt_payload_buf);
+        s_mqtt_payload_buf = NULL;
+        s_mqtt_payload_expected_len = 0;
+        s_mqtt_topic_buf[0] = '\0';
         break;
     }
     default:
