@@ -1,4 +1,5 @@
 #include <string.h>
+#include <stdint.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
@@ -29,6 +30,8 @@ static EventGroupHandle_t s_wifi_event_group;
 static const char *TAG = "MAIN";
 static int s_retry_num = 0;
 #define MOTION_OFF_DELAY_MS 39000
+#define MOTION_HIGH_DEBOUNCE_MS 300
+#define MOTION_RETRIGGER_SUPPRESS_MS 10000
 static void event_handler(void *arg, esp_event_base_t event_base,
                           int32_t event_id, void *event_data)
 {
@@ -183,7 +186,10 @@ void motion_read_task(void *pvParameters)
 {
     bool motion_state = false;
     bool raw_last_motion = false;
+    bool raw_motion_seen = false;
     int64_t last_motion_seen_us = 0;
+    int64_t raw_motion_start_us = 0;
+    int64_t last_motion_trigger_us = 0;
     while (!wifi_connected)
     {
         vTaskDelay(pdMS_TO_TICKS(500));
@@ -196,51 +202,74 @@ void motion_read_task(void *pvParameters)
 
         if (raw_motion)
         {
+            if (!raw_motion_seen)
+            {
+                raw_motion_seen = true;
+                raw_motion_start_us = now_us;
+            }
             last_motion_seen_us = now_us;
+
+            // Chỉ chấp nhận một lần "motion" mới khi tín hiệu đã ổn định một chút
+            // và không vừa phát hiện trong khoảng suppress để tránh nhấp nháy AUTO.
             if (!motion_state)
             {
-                motion_state = true;
-                s_sensor_data.motion_detected = true;
-                publish_motion_data(client, true);
+                int64_t high_stable_ms = (now_us - raw_motion_start_us) / 1000;
+                int64_t since_last_trigger_ms = last_motion_trigger_us == 0 ? INT64_MAX  : (now_us - last_motion_trigger_us) / 1000;
 
-                if (s_equipment_status.led_auto_mode)
+                if (high_stable_ms >= MOTION_HIGH_DEBOUNCE_MS &&
+                    since_last_trigger_ms >= MOTION_RETRIGGER_SUPPRESS_MS)
                 {
-                    gpio_set_level(RELAY1_GPIO, 1);
-                    s_equipment_status.led_state = true;
-                    ESP_LOGI(TAG, "[LED AUTO] Motion Detected -> LED ON");
-                    publish_feedback(client, "led", "ON");
+                    motion_state = true;
+                    last_motion_trigger_us = now_us;
+                    s_sensor_data.motion_detected = true;
+                    publish_motion_data(client, true);
 
-                    char payload[100];
-                    snprintf(payload, sizeof(payload), "{\"mode\":\"auto\",\"state\":1}");
-                    esp_mqtt_client_publish(client, "esp32_vuVanNGhia/home/led/status", payload, 0, 1, 1);
+                    if (s_equipment_status.led_auto_mode)
+                    {
+                        gpio_set_level(RELAY1_GPIO, 1);
+                        s_equipment_status.led_state = true;
+                        ESP_LOGI(TAG, "[LED AUTO] Motion Detected -> LED ON");
+                        publish_feedback(client, "led", "ON");
+
+                        char payload[100];
+                        snprintf(payload, sizeof(payload), "{\"mode\":\"auto\",\"state\":1}");
+                        esp_mqtt_client_publish(client, "esp32_vuVanNGhia/home/led/status", payload, 0, 1, 1);
+                    }
                 }
             }
         }
-        else if (motion_state)
+        else
         {
-            int64_t elapsed_ms = (now_us - last_motion_seen_us) / 1000;
-            if (elapsed_ms >= MOTION_OFF_DELAY_MS)
-            {
-                motion_state = false;
-                s_sensor_data.motion_detected = false;
-                publish_motion_data(client, false);
+            raw_motion_seen = false;
+            raw_motion_start_us = 0;
 
-                if (s_equipment_status.led_auto_mode)
+            if (motion_state)
+            {
+                int64_t elapsed_ms = (now_us - last_motion_seen_us) / 1000;
+                if (elapsed_ms >= MOTION_OFF_DELAY_MS)
                 {
-                    gpio_set_level(RELAY1_GPIO, 0);
-                    s_equipment_status.led_state = false;
-                    ESP_LOGI(TAG, "[LED AUTO] No motion for %lld ms -> LED OFF", (long long)elapsed_ms);
-                    publish_feedback(client, "led", "OFF");
+                    motion_state = false;
+                    last_motion_trigger_us = now_us;
+                    s_sensor_data.motion_detected = false;
+                    publish_motion_data(client, false);
 
-                    char payload[100];
-                    snprintf(payload, sizeof(payload), "{\"mode\":\"auto\",\"state\":0}");
-                    esp_mqtt_client_publish(client, "esp32_vuVanNGhia/home/led/status", payload, 0, 1, 1);
+                    if (s_equipment_status.led_auto_mode)
+                    {
+                        gpio_set_level(RELAY1_GPIO, 0);
+                        s_equipment_status.led_state = false;
+                        ESP_LOGI(TAG, "[LED AUTO] No motion for %lld ms -> LED OFF", (long long)elapsed_ms);
+                        publish_feedback(client, "led", "OFF");
+
+                        char payload[100];
+                        snprintf(payload, sizeof(payload), "{\"mode\":\"auto\",\"state\":0}");
+                        esp_mqtt_client_publish(client, "esp32_vuVanNGhia/home/led/status", payload, 0, 1, 1);
+                    }
                 }
-            }
-            else if (raw_last_motion != raw_motion)
-            {
-                ESP_LOGI(TAG, "[MOTION] Raw off detected, wait %d ms before turning off (elapsed=%lld ms)",
-                         MOTION_OFF_DELAY_MS, (long long)elapsed_ms);
+                else if (raw_last_motion != raw_motion)
+                {
+                    ESP_LOGI(TAG, "[MOTION] Raw off detected, wait %d ms before turning off (elapsed=%lld ms)",
+                             MOTION_OFF_DELAY_MS, (long long)elapsed_ms);
+                }
             }
         }
 
