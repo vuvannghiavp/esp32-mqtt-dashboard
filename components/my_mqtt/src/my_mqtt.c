@@ -620,6 +620,22 @@ void mqtt_app_start(void)
             .retain = 1,
         },
     };
+
+    esp_mqtt_client_config_t mqtt_cfg = {
+        .broker = {
+            .address.uri = "mqtts://a3kopdrc302etb-ats.iot.ap-southeast-1.amazonaws.com:8883",
+            .verification.certificate = (const char *)RootCA1_pem_start
+        },
+        .credentials = {
+            .client_id = "Home_Smart_Thing", // Tên Thing của bạn
+            .authentication = {
+                .certificate = (const char *)certificate_pem_start,
+                .key = (const char *)private_pem_start
+            }
+        }
+    };
+
+
     client = esp_mqtt_client_init(&mqtt_cfg);
     esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
     esp_mqtt_client_start(client);
