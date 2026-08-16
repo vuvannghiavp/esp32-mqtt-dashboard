@@ -13,6 +13,7 @@
 #include "stdbool.h"
 #include "time.h"
 #include "esp_sntp.h"
+#include "esp_timer.h"
 #include "confi.h"
 #include "sr522.h"
 #include "DHT22.h"
@@ -27,6 +28,7 @@ static EventGroupHandle_t s_wifi_event_group;
 #define WIFI_FAIL_BIT BIT1
 static const char *TAG = "MAIN";
 static int s_retry_num = 0;
+#define MOTION_OFF_DELAY_MS 39000
 static void event_handler(void *arg, esp_event_base_t event_base,
                           int32_t event_id, void *event_data)
 {
@@ -179,7 +181,9 @@ void sensor_read_task(void *pvParameters)
 }
 void motion_read_task(void *pvParameters)
 {
-    bool last_motion = false;
+    bool motion_state = false;
+    bool raw_last_motion = false;
+    int64_t last_motion_seen_us = 0;
     while (!wifi_connected)
     {
         vTaskDelay(pdMS_TO_TICKS(500));
@@ -187,30 +191,60 @@ void motion_read_task(void *pvParameters)
 
     for (;;)
     {
-        s_sensor_data.motion_detected = sr522_is_motion_detected();
-        if (s_sensor_data.motion_detected != last_motion)
+        bool raw_motion = sr522_is_motion_detected();
+        int64_t now_us = esp_timer_get_time();
+
+        if (raw_motion)
         {
-            last_motion = s_sensor_data.motion_detected;
-            publish_motion_data(client, s_sensor_data.motion_detected);
-
-            // AUTO MODE: Điều khiển đèn tự động theo cảm biến chuyển động
-            if (s_equipment_status.led_auto_mode)
+            last_motion_seen_us = now_us;
+            if (!motion_state)
             {
-                gpio_set_level(RELAY1_GPIO, s_sensor_data.motion_detected ? 1 : 0);
-                s_equipment_status.led_state = s_sensor_data.motion_detected;
+                motion_state = true;
+                s_sensor_data.motion_detected = true;
+                publish_motion_data(client, true);
 
-                ESP_LOGI(TAG, "[LED AUTO] Motion %s -> LED %s",
-                    s_sensor_data.motion_detected ? "Detected" : "Not Detected",
-                    s_sensor_data.motion_detected ? "ON" : "OFF");
+                if (s_equipment_status.led_auto_mode)
+                {
+                    gpio_set_level(RELAY1_GPIO, 1);
+                    s_equipment_status.led_state = true;
+                    ESP_LOGI(TAG, "[LED AUTO] Motion Detected -> LED ON");
+                    publish_feedback(client, "led", "ON");
 
-                // Publish LED feedback cho nút UI và trạng thái auto mode
-                publish_feedback(client, "led", s_sensor_data.motion_detected ? "ON" : "OFF");
-
-                char payload[100];
-                snprintf(payload, sizeof(payload), "{\"mode\":\"auto\",\"state\":%d}", s_sensor_data.motion_detected);
-                esp_mqtt_client_publish(client, "esp32_vuVanNGhia/home/led/status", payload, 0, 1, 1);
+                    char payload[100];
+                    snprintf(payload, sizeof(payload), "{\"mode\":\"auto\",\"state\":1}");
+                    esp_mqtt_client_publish(client, "esp32_vuVanNGhia/home/led/status", payload, 0, 1, 1);
+                }
             }
         }
+        else if (motion_state)
+        {
+            int64_t elapsed_ms = (now_us - last_motion_seen_us) / 1000;
+            if (elapsed_ms >= MOTION_OFF_DELAY_MS)
+            {
+                motion_state = false;
+                s_sensor_data.motion_detected = false;
+                publish_motion_data(client, false);
+
+                if (s_equipment_status.led_auto_mode)
+                {
+                    gpio_set_level(RELAY1_GPIO, 0);
+                    s_equipment_status.led_state = false;
+                    ESP_LOGI(TAG, "[LED AUTO] No motion for %lld ms -> LED OFF", (long long)elapsed_ms);
+                    publish_feedback(client, "led", "OFF");
+
+                    char payload[100];
+                    snprintf(payload, sizeof(payload), "{\"mode\":\"auto\",\"state\":0}");
+                    esp_mqtt_client_publish(client, "esp32_vuVanNGhia/home/led/status", payload, 0, 1, 1);
+                }
+            }
+            else if (raw_last_motion != raw_motion)
+            {
+                ESP_LOGI(TAG, "[MOTION] Raw off detected, wait %d ms before turning off (elapsed=%lld ms)",
+                         MOTION_OFF_DELAY_MS, (long long)elapsed_ms);
+            }
+        }
+
+        raw_last_motion = raw_motion;
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
