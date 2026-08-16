@@ -10,3 +10,7 @@ build/
 .env
 *.key
 *.pem
+
+# AWS IoT credentials
+main/Cert/private.pem
+main/Cert/certificate.pem

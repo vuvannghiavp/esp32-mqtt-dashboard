@@ -22,6 +22,12 @@
 #define EXAMPLE_ESP_WIFI_SSID CONFIG_ESP_WIFI_SSID
 #define EXAMPLE_ESP_WIFI_PASS CONFIG_ESP_WIFI_PASSWORD
 #define EXAMPLE_ESP_MAXIMUM_RETRY CONFIG_ESP_MAXIMUM_RETRY
+
+// Ví dụ file là aws-root-ca.pem -> biến sẽ là _binary_aws_root_ca_pem_start
+extern const uint8_t RootCA1_pem_start[] asm("_binary_RootCA1_pem_start");
+extern const uint8_t private_pem_start[] asm("_binary_private_pem_start");
+extern const uint8_t certificate_pem_start[] asm("_binary_certificate_pem_start");
+
 char esp_ip[16];
 bool wifi_connected = false;
 static EventGroupHandle_t s_wifi_event_group;
@@ -92,7 +98,7 @@ static void initialize_sntp(void)
     }
 }
 
-void wifi_init_sta(void)
+bool wifi_init_sta(void)
 {
     s_wifi_event_group = xEventGroupCreate();
 
@@ -139,15 +145,18 @@ void wifi_init_sta(void)
     {
         ESP_LOGI(TAG, "connected to ap SSID:%s password:%s",
                  EXAMPLE_ESP_WIFI_SSID, EXAMPLE_ESP_WIFI_PASS);
+        return true;
     }
     else if (bits & WIFI_FAIL_BIT)
     {
         ESP_LOGI(TAG, "Failed to connect to SSID:%s, password:%s",
                  EXAMPLE_ESP_WIFI_SSID, EXAMPLE_ESP_WIFI_PASS);
+        return false;
     }
     else
     {
         ESP_LOGE(TAG, "UNEXPECTED EVENT");
+        return false;
     }
 }
 void sensor_read_task(void *pvParameters)
@@ -209,12 +218,10 @@ void motion_read_task(void *pvParameters)
             }
             last_motion_seen_us = now_us;
 
-            // Chỉ chấp nhận một lần "motion" mới khi tín hiệu đã ổn định một chút
-            // và không vừa phát hiện trong khoảng suppress để tránh nhấp nháy AUTO.
             if (!motion_state)
             {
                 int64_t high_stable_ms = (now_us - raw_motion_start_us) / 1000;
-                int64_t since_last_trigger_ms = last_motion_trigger_us == 0 ? INT64_MAX  : (now_us - last_motion_trigger_us) / 1000;
+                int64_t since_last_trigger_ms = last_motion_trigger_us == 0 ? INT64_MAX : (now_us - last_motion_trigger_us) / 1000;
 
                 if (high_stable_ms >= MOTION_HIGH_DEBOUNCE_MS &&
                     since_last_trigger_ms >= MOTION_RETRIGGER_SUPPRESS_MS)
@@ -297,9 +304,13 @@ void app_main(void)
     bh_1750_init();
 
     ESP_LOGI(TAG, "ESP_WIFI_MODE_STA");
-    wifi_init_sta();
-    initialize_sntp();
-    mqtt_app_start();
+    if (wifi_init_sta())
+    {
+        initialize_sntp();
+        mqtt_app_start();
+    }
+    else
+        ESP_LOGE(TAG, "WiFi failed, skip SNTP and MQTT");
 
     xTaskCreate(
         sensor_read_task,
