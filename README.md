@@ -8,13 +8,12 @@ Một hệ thống nhà thông minh (Smart Home IoT) dựa trên ESP32 với kh�
 - **DHT22**: Đo nhiệt độ và độ ẩm
 - **BH1750**: Đo cường độ ánh sáng (Lux)
 - **Motion Sensor**: Phát hiện chuyển động
-- **SR522 RFID**: Đọc thẻ RFID (tuỳ chọn)
 
 ### 🔧 Điều Khiển Thiết Bị
 - **Quạt thông minh (Smart Fan)**: Điều chỉnh tốc độ qua PWM (0-100%)
 - **Hẹn giờ (Timer)**: Lên lịch bật/tắt thiết bị theo thời gian
 - **Phản hồi trạng thái**: Xác nhận tất cả lệnh điều khiển
-
+### Đồng bộ nhiều thiết bị (app / web)
 ### 🌐 Kết Nối
 - **WiFi STA**: Kết nối mạng WiFi ổn định với tự động reconnect
 - **MQTT**: Giao tiếp với MQTT broker (HiveMQ public broker mặc định)
@@ -132,6 +131,6 @@ idf.py -p COM3 monitor
 
 ## 📝 Ghi Chú
 
-- Sử dụng HiveMQ public MQTT broker để test (không dùng cho production)
+- Sử dụng HiveMQ public MQTT broker để test
 - Cần tạo GitHub Pages repository để host dashboard web
 - Có thể mở rộng với thêm sensor, actuator khác
