@@ -10,7 +10,3 @@ build/
 .env
 *.key
 *.pem
-
-# AWS IoT credentials
-components/my_mqtt/src/Cert/private.pem
-components/my_mqtt/src/Cert/certificate.pem

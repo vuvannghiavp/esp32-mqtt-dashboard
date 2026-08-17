@@ -3,7 +3,7 @@
 extern char esp_ip[16];
 extern bool wifi_connected;
 extern esp_mqtt_client_handle_t client;
-void mqtt_app_start(void);              // configurate Endpoint and pass certification for TLS
+void mqtt_app_start(void);
 void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data);
 void check_timer_task(void *pvParameters);
 void publish_motion_data(esp_mqtt_client_handle_t client, uint8_t motion_detected);
