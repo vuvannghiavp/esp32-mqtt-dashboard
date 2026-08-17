@@ -20,9 +20,22 @@ extern int s_timer_count;
 
 esp_mqtt_client_handle_t client = NULL;
 static const char *TAG = "MQTT";
+static const char *TAG1 = "ERROR_MQTT";
 static char *s_mqtt_payload_buf = NULL;
 static size_t s_mqtt_payload_expected_len = 0;
 static char s_mqtt_topic_buf[64] = {0};
+// Ví dụ file là aws-root-ca.pem -> biến sẽ là _binary_aws_root_ca_pem_start
+// Khai báo file Root CA
+extern const uint8_t RootCA1_pem_start[] asm("_binary_RootCA1_pem_start");
+extern const uint8_t RootCA1_pem_end[]   asm("_binary_RootCA1_pem_end");
+
+// Khai báo file Private Key
+extern const uint8_t private_pem_start[] asm("_binary_private_pem_start");
+extern const uint8_t private_pem_end[]   asm("_binary_private_pem_end");
+
+// Khai báo file Client Certificate
+extern const uint8_t certificate_pem_start[] asm("_binary_certificate_pem_start");
+extern const uint8_t certificate_pem_end[]   asm("_binary_certificate_pem_end");
 
 static void apply_fan_state(bool fan_on, int speed_percent);
 void mqtt_data_dispatch(const char *topic, int topic_len,
@@ -474,7 +487,7 @@ static void handle_led_manual_control(const char *data, int data_len)
     }
 
     bool led_on = cJSON_IsTrue(state_item) || (cJSON_IsNumber(state_item) && state_item->valueint != 0);
-    
+
     // Chỉ điều khiển thủ công khi ở chế độ MANUAL
     if (!s_equipment_status.led_auto_mode)
     {
@@ -610,7 +623,6 @@ void publish_status(void)
 void mqtt_app_start(void)
 {
     esp_mqtt_client_config_t mqtt_cfg = {
-        .broker.address.uri = CONFIG_BROKER_URL,
         .session.keepalive = 30,
         .session.last_will = {
             .topic = "esp32_vuVanNGhia/home/status",
@@ -619,26 +631,28 @@ void mqtt_app_start(void)
             .qos = 1,
             .retain = 1,
         },
-    };
+        .broker = {//.address.uri = "mqtts://a3kopdrc302etb-ats.iot.ap-southeast-1.amazonaws.com:8883",
+                   .address.uri = CONFIG_BROKER_URL,
+                   .verification.certificate = (const char *)RootCA1_pem_start,
+                   // EMBED_TXTFILES already stores PEM as a null-terminated string.
+                   // Keep the length at 0 so esp-mqtt/mbedTLS parses it as PEM text.
+                   .verification.certificate_len = 0
+                },
 
-    esp_mqtt_client_config_t mqtt_cfg = {
-        .broker = {
-            .address.uri = "mqtts://a3kopdrc302etb-ats.iot.ap-southeast-1.amazonaws.com:8883",
-            .verification.certificate = (const char *)RootCA1_pem_start
-        },
         .credentials = {
-            .client_id = "Home_Smart_Thing", // Tên Thing của bạn
+            .client_id = "Home_Smart_Thing", 
             .authentication = {
-                .certificate = (const char *)certificate_pem_start,
-                .key = (const char *)private_pem_start
-            }
+                    .certificate = (const char *)certificate_pem_start,
+                    .certificate_len = 0,
+                    .key = (const char *)private_pem_start, 
+                    .key_len = 0
+            },
         }
     };
 
-
-    client = esp_mqtt_client_init(&mqtt_cfg);
-    esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
-    esp_mqtt_client_start(client);
+client = esp_mqtt_client_init(&mqtt_cfg);
+esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
+esp_mqtt_client_start(client);
 }
 
 // Kiểm tra & thực thi lịch hẹn (gọi định kỳ mỗi giây, vd trong 1 task riêng)
@@ -734,6 +748,29 @@ void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event
         ESP_LOGI(TAG, "PUBLISH_SUCCECSSFULLY");
         break;
         // ESP32 nhận được message từ topic đã subscribe. Đọc topic + payload và xử lý lệnh/dữ liệu
+    case MQTT_EVENT_ERROR:
+    {
+        esp_mqtt_event_handle_t event = event_data;
+
+        ESP_LOGE(TAG1, "MQTT_EVENT_ERROR");
+
+        if (event->error_handle)
+        {
+            ESP_LOGE(TAG1, "error_type: %d",
+                     event->error_handle->error_type);
+
+            ESP_LOGE(TAG1, "esp_tls_last_esp_err: 0x%x",
+                     event->error_handle->esp_tls_last_esp_err);
+
+            ESP_LOGE(TAG1, "esp_tls_stack_err: 0x%x",
+                     event->error_handle->esp_tls_stack_err);
+
+            ESP_LOGE(TAG1, "connect_return_code: 0x%x",
+                     event->error_handle->connect_return_code);
+        }
+
+        break;
+    }
     case MQTT_EVENT_DATA:
     {
         ESP_LOGI(TAG, "MQTT_EVENT_DATA");

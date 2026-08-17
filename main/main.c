@@ -18,15 +18,11 @@
 #include "confi.h"
 #include "sr522.h"
 #include "DHT22.h"
+#include "esp_netif_sntp.h"
 #include "zh_bh1750.h"
 #define EXAMPLE_ESP_WIFI_SSID CONFIG_ESP_WIFI_SSID
 #define EXAMPLE_ESP_WIFI_PASS CONFIG_ESP_WIFI_PASSWORD
 #define EXAMPLE_ESP_MAXIMUM_RETRY CONFIG_ESP_MAXIMUM_RETRY
-
-// Ví dụ file là aws-root-ca.pem -> biến sẽ là _binary_aws_root_ca_pem_start
-extern const uint8_t RootCA1_pem_start[] asm("_binary_RootCA1_pem_start");
-extern const uint8_t private_pem_start[] asm("_binary_private_pem_start");
-extern const uint8_t certificate_pem_start[] asm("_binary_certificate_pem_start");
 
 char esp_ip[16];
 bool wifi_connected = false;
@@ -69,33 +65,39 @@ static void event_handler(void *arg, esp_event_base_t event_base,
     }
 }
 
-static void initialize_sntp(void)
+static bool initialize_sntp(void)
 {
     ESP_LOGI(TAG, "[TIME] Khởi tạo đồng bộ thời gian SNTP");
     esp_sntp_setoperatingmode(SNTP_OPMODE_POLL);
-    esp_sntp_setservername(0, "pool.ntp.org");
+    esp_sntp_setservername(0, "time.google.com");
+    esp_sntp_setservername(1, "vn.pool.ntp.org");
+    esp_sntp_setservername(2, "time.windows.com");
     esp_sntp_init();
 
-    setenv("TZ", "CST-7", 1);
+    setenv("TZ", "ICT-7", 1); // Cấu hình múi giờ UTC+7 (Việt Nam)
     tzset();
 
     int retry = 0;
-    while (esp_sntp_get_sync_status() == SNTP_SYNC_STATUS_RESET && retry < 30)
+    const int max_retry = 40;
+    while (retry < max_retry)
     {
+        time_t now = 0;
+        struct tm timeinfo = {0};
+        time(&now);
+        localtime_r(&now, &timeinfo);
+        if (timeinfo.tm_year >= 120) // Năm 1900 + 120 = 2020 (Thời gian đã đồng bộ)
+        {
+            char strftime_buf[64];
+            strftime(strftime_buf, sizeof(strftime_buf), "%c", &timeinfo);
+            ESP_LOGI(TAG, "[TIME] Đồng bộ thời gian thành công: %s", strftime_buf);
+            return true;
+        }
         vTaskDelay(pdMS_TO_TICKS(500));
         retry++;
     }
 
-    if (esp_sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED)
-    {
-        time_t now = 0;
-        time(&now);
-        ESP_LOGI(TAG, "[TIME] Đồng bộ thời gian thành công: %ld", (long)now);
-    }
-    else
-    {
-        ESP_LOGW(TAG, "[TIME] Đồng bộ thời gian chưa hoàn tất, timer sẽ chờ thời gian thực");
-    }
+    ESP_LOGE(TAG, "[TIME] Lỗi: Chưa thể lấy thời gian từ NTP Server!");
+    return false;
 }
 
 bool wifi_init_sta(void)

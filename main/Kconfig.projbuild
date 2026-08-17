@@ -24,9 +24,6 @@ menu "Example Configuration"
         URL of the broker to connect to
 
 
-
-    menu "Example Configuration"
-
     config EXAMPLE_FIRMWARE_UPGRADE_URL
         string "firmware upgrade url endpoint"
         default "https://192.168.0.3:8070/hello_world.bin"
@@ -95,4 +92,3 @@ menu "Example Configuration"
             allocations during data transfer.
 endmenu
 
-endmenu
