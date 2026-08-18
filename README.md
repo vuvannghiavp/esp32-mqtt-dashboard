@@ -1,80 +1,105 @@
-# 📱 ESP32 IoT Dashboard with MQTT
+# ESP32 IoT Dashboard with MQTT
 
-Một hệ thống nhà thông minh (Smart Home IoT) dựa trên ESP32 với khả năng giám sát cảm biến, điều khiển thiết bị từ xa thông qua MQTT và dashboard web được xây dựng trên GitHub Pages.
+A Smart Home IoT system based on ESP32, featuring real-time sensor monitoring, remote device control via MQTT, and a web dashboard hosted on GitHub Pages.
 
-## 🎯 Tính Năng Chính
+## Main Features
 
-### 📊 Giám Sát Cảm Biến Real-time
-- **DHT22**: Đo nhiệt độ và độ ẩm
-- **BH1750**: Đo cường độ ánh sáng (Lux)
-- **Motion Sensor**: Phát hiện chuyển động
+### Real-time Sensor Monitoring
 
-### 🔧 Điều Khiển Thiết Bị
-- **Quạt thông minh (Smart Fan)**: Điều chỉnh tốc độ qua PWM (0-100%)
-- **Hẹn giờ (Timer)**: Lên lịch bật/tắt thiết bị theo thời gian
-- **Phản hồi trạng thái**: Xác nhận tất cả lệnh điều khiển
-### Đồng bộ nhiều thiết bị (app / web)
-### 🌐 Kết Nối
-- **WiFi STA**: Kết nối mạng WiFi ổn định với tự động reconnect
-- **MQTT**: Giao tiếp với MQTT broker (HiveMQ public broker mặc định)
-- **Topic-based**: Tổ chức dữ liệu theo các chủ đề MQTT rõ ràng
+* **DHT22**: Measures temperature and humidity
+* **BH1750**: Measures light intensity (Lux)
+* **Motion Sensor**: Detects motion
 
-### 📈 Dashboard Web
-- Hiển thị dữ liệu cảm biến real-time
-- Điều khiển các thiết bị từ giao diện web
-- Xây dựng trên GitHub Pages (dễ deploy & miễn phí hosting)
+### Device Control
 
-## 🛠️ Công Nghệ Sử Dụng
+* **Smart Fan**: Adjustable speed control via PWM (0–100%)
+* **Timer**: Schedule devices to turn on/off at specified times
+* **Status Feedback**: Provides confirmation of control commands
 
-- **Firmware**: ESP-IDF 5.5.3
-- **Microcontroller**: ESP32
-- **Protocol**: MQTT, WiFi (802.11 b/g/n)
-- **Lập trình**: C (FreeRTOS)
-- **JSON**: cJSON library để xử lý dữ liệu
-- **Web**: HTML/CSS/JavaScript (GitHub Pages)
+### Multi-Device Synchronization (Mobile App / Web Dashboard)
 
-## 📋 Cấu Trúc Dự Án
+### Mobile App Integration
 
-```
+The system integrates with the **IoT MQTT Panel** mobile application through the **MQTT protocol**, allowing users to remotely monitor sensor data and control connected devices.
+
+* **Remote monitoring:** Collects and displays temperature, humidity, light intensity, and motion data on the mobile app.
+* **Remote control:** Allows users to remotely control devices such as LEDs and fans through MQTT commands.
+* **MQTT communication:** The ESP32 publishes sensor data to MQTT topics and subscribes to control topics from the mobile application.
+* **Two-way communication:** The mobile application can both receive data from the ESP32 and send control commands back to the device.
+
+**Communication flow:**
+
+`ESP32 → MQTT Broker → IoT MQTT Panel`
+
+`IoT MQTT Panel → MQTT Broker → ESP32`
+
+### Connectivity
+
+* **WiFi STA:** Stable WiFi connection with automatic reconnection
+* **MQTT:** Communication with an MQTT broker (HiveMQ public broker by default)
+* **Topic-based communication:** Organizes data and commands using clearly structured MQTT topics
+
+### Web Dashboard
+
+* Displays real-time sensor data
+* Controls devices through a web interface
+* Hosted on **GitHub Pages**
+
+## Technologies Used
+
+* **Firmware:** ESP-IDF 5.5.3
+* **Microcontroller:** ESP32
+* **Protocols:** MQTT, WiFi
+* **Programming:** C with FreeRTOS
+* **JSON:** cJSON library for data processing
+* **Web:** HTML/CSS/JavaScript (GitHub Pages)
+
+## Project Structure
+
+```text
 MQTT_with_Gitpage/
-├── main/                 # Điểm vào chính
-│   ├── main.c           # Khởi tạo WiFi, task, sensor
+├── main/                         # Main application
+│   ├── main.c                    # WiFi initialization, tasks, sensors
 │   └── CMakeLists.txt
 ├── components/
-│   ├── my_mqtt/         # Component MQTT
-│   │   ├── src/my_mqtt.c      # Xử lý MQTT events & commands
+│   ├── my_mqtt/                  # MQTT component
+│   │   ├── src/my_mqtt.c         # MQTT events & command handling
 │   │   └── include/my_mqtt.h
-│   └── sensor/          # Component sensor (DHT22, BH1750, RFID)
-├── build/               # Thư mục build
-├── CMakeLists.txt       # Cấu hình CMake chính
-└── sdkconfig           # Cấu hình ESP-IDF
+│   └── sensor/                   # Sensor component (DHT22, BH1750, RFID)
+├── build/                        # Build directory
+├── CMakeLists.txt                # Main CMake configuration
+└── sdkconfig                     # ESP-IDF configuration
 ```
 
-## 🚀 Chức Năng Chính
+## Main Functions
 
-### 1️⃣ WiFi Connectivity
-- Kết nối WiFi tự động với retry logic
-- Lưu trữ IP address ESP32
+### WiFi Connectivity
 
-### 2️⃣ MQTT Publishing
-- Gửi dữ liệu nhiệt độ/độ ẩm (3 giây/lần)
-- Gửi dữ liệu ánh sáng
-- Gửi trạng thái chuyển động
-- Gửi trạng thái phản hồi thiết bị
+* Automatic WiFi connection with retry logic
+* Stores the ESP32 IP address
 
-### 3️⃣ MQTT Subscribing
-- Nhận lệnh điều chỉnh tốc độ quạt (JSON format)
-- Nhận cấu hình hẹn giờ
-- Xử lý các yêu cầu điều khiển từ dashboard
+### MQTT Publishing
 
-### 4️⃣ Multi-tasking (FreeRTOS)
-- `sensor_read_task`: Đọc cảm biến định kỳ
-- `motion_read_task`: Phát hiện chuyển động
-- `check_timer_task`: Kiểm tra hẹn giờ
+* Publishes temperature and humidity data every 3 seconds
+* Publishes light intensity data
+* Publishes motion status
+* Publishes device status and feedback
 
-## 💻 Format MQTT Topics
+### MQTT Subscribing
 
-```
+* Receives fan speed control commands in JSON format
+* Receives timer configuration
+* Processes control requests from the web dashboard and mobile application
+
+### Multi-tasking (FreeRTOS)
+
+* `sensor_read_task`: Periodically reads sensor data
+* `motion_read_task`: Detects motion
+* `check_timer_task`: Checks and executes scheduled tasks
+
+## MQTT Topic Structure
+
+```text
 esp32_vuVanNGhia/home/
 ├── sensors/
 │   ├── dht22      → {"temperature": 25.5, "humidity": 60.0}
@@ -84,53 +109,41 @@ esp32_vuVanNGhia/home/
 │   └── status     → {"speed": 75, "pwm": 191}
 ├── config/
 │   └── timer/status → {"target": "fan", "time": "10:30", "action": "on"}
-└── feedback       → {"device": "fan", "state": "success"}
+└── feedback        → {"device": "fan", "state": "success"}
 ```
 
-## 🔌 Yêu Cầu Phần Cứng
+## Hardware Requirements
 
-- ESP32 Development Board
-- Sensor DHT22
-- Sensor BH1750
-- PIR Motion Sensor
-- PWM Fan (hoặc thiết bị điều khiển qua PWM)
-- Breadboard & Dây cắm
-- Nguồn điện 5V/3.3V
+* ESP32 Development Board
+* DHT22 Sensor
+* BH1750 Sensor
+* PIR Motion Sensor
+* PWM Fan (or another PWM-controlled device)
+* Breadboard & jumper wires
+* 5V/3.3V power supply
 
-## ⚙️ Cấu Hình
+## Configuration
 
-**File `Kconfig.projbuild`:**
-```
+**File: `Kconfig.projbuild`**
+
+```text
 CONFIG_ESP_WIFI_SSID=your_ssid
 CONFIG_ESP_WIFI_PASSWORD=your_password
 CONFIG_BROKER_URL=mqtt://broker.hivemq.com:1883
 ```
 
-## 📦 Cách Build & Flash
+## Knowledge & Skills Applied
 
-```bash
-# Build project
-idf.py build
+✅ ESP32 & FreeRTOS
+✅ WiFi & MQTT Communication
+✅ Sensor Integration (I2C, Digital I/O)
+✅ PWM Control
+✅ Event-driven Architecture
+✅ JSON Parsing & Serialization
+✅ Task Management & Synchronization
 
-# Flash lên ESP32
-idf.py -p COM3 flash
+## Notes
 
-# Monitor output
-idf.py -p COM3 monitor
-```
-
-## 🎓 Kiến Thức Áp Dụng
-
-✅ ESP32 & FreeRTOS  
-✅ WiFi & MQTT Communication  
-✅ Sensor Integration (I2C, Digital IO)  
-✅ PWM Control  
-✅ Event-driven Architecture  
-✅ JSON Parsing & Serialization  
-✅ Task Management & Synchronization  
-
-## 📝 Ghi Chú
-
-- Sử dụng HiveMQ public MQTT broker để test
-- Cần tạo GitHub Pages repository để host dashboard web
-- Có thể mở rộng với thêm sensor, actuator khác
+* Uses the **HiveMQ public MQTT broker** for testing.
+* A GitHub Pages repository is required to host the web dashboard.
+* The system can be extended with additional sensors and actuators.
